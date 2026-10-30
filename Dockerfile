@@ -16,6 +16,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
+# JavaScript runtime for yt-dlp; see backend/Dockerfile for the version choice.
+COPY --from=denoland/deno:bin-2.9.5 /deno /usr/local/bin/deno
+
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     STORAGE_DIR=/data \
     ALLOWED_ORIGINS=http://localhost:7860

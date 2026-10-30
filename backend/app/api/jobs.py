@@ -7,10 +7,10 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
 from app.core.config import settings
-from app.services import youtube
+from app.services import segmenter, youtube
 from app.services.jobs import Job, job_store
 from app.services.probe import ProbeError, probe
-from app.services.storage import create_job_dir, delete_job_dir, parse_job_id
+from app.services.storage import create_job_dir, delete_job_dir, job_dir, parse_job_id
 from app.services.upload import MULTIPART_OVERHEAD, UploadMalformed, UploadTooLarge, stream_upload
 
 log = logging.getLogger(__name__)
@@ -29,6 +29,14 @@ class JobOut(BaseModel):
 
 class YoutubeIn(BaseModel):
     url: str = Field(max_length=2048)
+
+
+class ClipOut(BaseModel):
+    index: int
+    start: float
+    end: float
+    duration: float
+    thumbnail_url: str
 
 
 def _out(job: Job) -> JobOut:
@@ -125,7 +133,43 @@ def get_job(job_id: str) -> JobOut:
 @router.get("/{job_id}/video")
 def get_video(job_id: str) -> FileResponse:
     job = _require_job(job_id)
-    if job.status != "ready" or job.video_path is None:
+    # video_path is set once the job is ready and stays valid while segmenting and after.
+    if job.video_path is None:
         raise HTTPException(409, "Video isn't ready yet.")
     # FileResponse handles Range requests, so the preview can seek without downloading it all.
     return FileResponse(job.video_path, media_type=job.media_type)
+
+
+@router.post("/{job_id}/segment", status_code=202, response_model=JobOut)
+def segment(job_id: str, background: BackgroundTasks) -> JobOut:
+    _require_job(job_id)
+    if not job_store.transition(job_id, "ready", status="segmenting", progress=0, error=None):
+        raise HTTPException(409, "The video must be ready before finding clips.")
+    background.add_task(segmenter.segment_job, job_store, job_id)
+    return _out(job_store.get(job_id))
+
+
+@router.get("/{job_id}/clips", response_model=list[ClipOut])
+def list_clips(job_id: str) -> list[ClipOut]:
+    job = _require_job(job_id)
+    if job.status != "segmented":
+        raise HTTPException(409, "Clips aren't ready yet.")
+    return [
+        ClipOut(
+            index=c.index, start=c.start, end=c.end, duration=c.duration,
+            thumbnail_url=f"/api/jobs/{job.id}/clips/{c.index}/thumbnail",
+        )
+        for c in job.clips
+    ]
+
+
+@router.get("/{job_id}/clips/{index}/thumbnail")
+def clip_thumbnail(job_id: str, index: str) -> FileResponse:
+    job = _require_job(job_id)
+    # ASCII digits only; the file name is then built from the int, never from the raw string.
+    if not (index.isascii() and index.isdigit()):
+        raise HTTPException(400, "Invalid clip index.")
+    i = int(index)
+    if job.status != "segmented" or i >= len(job.clips):
+        raise HTTPException(404, "Clip not found.")
+    return FileResponse(job_dir(job.id) / "thumbs" / f"{i}.jpg", media_type="image/jpeg")

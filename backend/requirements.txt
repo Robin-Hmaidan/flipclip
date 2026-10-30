@@ -4,6 +4,9 @@ uvicorn[standard]==0.54.0
 pydantic-settings==2.16.0
 python-multipart==0.0.32
 yt-dlp==2026.8.19
+# YouTube challenge-solver scripts that yt-dlp runs in Deno (see Dockerfile). Version is the one
+# this yt-dlp release pins in its own "pin" extra.
+yt-dlp-ejs==0.8.0
 # The only OpenCV package: mediapipe requires the contrib build, and a second OpenCV
 # package would overwrite the same cv2/ folder.
 opencv-contrib-python==5.0.0.93

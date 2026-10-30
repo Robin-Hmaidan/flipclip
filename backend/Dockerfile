@@ -7,6 +7,10 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
+# yt-dlp needs a JavaScript runtime for YouTube; without one some formats go missing.
+# 2.9.5 is the version yt-dlp 2026.8.19 pins in its "pin-deno" extra. Keep the two in step.
+COPY --from=denoland/deno:bin-2.9.5 /deno /usr/local/bin/deno
+
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 

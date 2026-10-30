@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react'
-import { getConfig, getHealth, submitYoutube, uploadVideo } from './api.js'
+import { getConfig, getHealth, segmentJob, submitYoutube, uploadVideo } from './api.js'
+import ClipList from './components/ClipList.jsx'
 import JobStatus, { ProgressBar } from './components/JobStatus.jsx'
+import Preview from './components/Preview.jsx'
 import VideoInput from './components/VideoInput.jsx'
 import { useJob } from './useJob.js'
+import { useRangePlayback } from './useRangePlayback.js'
+
+// Statuses in which the job has a playable video.
+const HAS_VIDEO = ['ready', 'segmenting', 'segmented']
 
 export default function App() {
   const [health, setHealth] = useState(null)
@@ -11,14 +17,15 @@ export default function App() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState(null)
   const [jobId, setJobId] = useState(null)
-  const { job, error: pollError } = useJob(jobId)
+  const { job, error: pollError, resume } = useJob(jobId)
+  const { videoRef, playRange, activeIndex, onSeeking, stop } = useRangePlayback()
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null))
     getConfig().then(setConfig).catch(() => setConfig(null))
   }, [])
 
-  const busy = submitting || (jobId && !['ready', 'failed'].includes(job?.status))
+  const hasVideo = job && HAS_VIDEO.includes(job.status)
 
   async function start(submit) {
     setError(null)
@@ -45,16 +52,27 @@ export default function App() {
     start(() => uploadVideo(file, setUploadPct))
   }
 
-  function handleUrl(url) {
-    start(() => submitYoutube(url))
+  async function findClips() {
+    setError(null)
+    setSubmitting(true)
+    try {
+      await segmentJob(job.id)
+      resume()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   function reset() {
+    stop()
     setJobId(null)
     setError(null)
   }
 
   const shownError = error || pollError
+  const settled = job && ['ready', 'failed', 'segmented'].includes(job.status)
 
   return (
     <main className="app">
@@ -63,18 +81,37 @@ export default function App() {
         <p className="tagline">Turn horizontal videos into vertical clips.</p>
       </header>
 
-      {!jobId && <VideoInput onFile={handleFile} onUrl={handleUrl} disabled={busy} />}
+      {!jobId && <VideoInput onFile={handleFile} onUrl={(url) => start(() => submitYoutube(url))} disabled={submitting} />}
 
-      <section className="status" aria-live="polite">
-        {uploadPct !== null && (
-          <ProgressBar label={uploadPct < 100 ? 'Uploading…' : 'Checking video…'} value={uploadPct} />
-        )}
-        {submitting && uploadPct === null && <p className="message">Checking link…</p>}
-        {shownError && <p className="message message--error">{shownError}</p>}
-        {job && <JobStatus job={job} />}
-      </section>
+      {uploadPct !== null && (
+        <ProgressBar label={uploadPct < 100 ? 'Uploading…' : 'Checking video…'} value={uploadPct} />
+      )}
+      {submitting && uploadPct === null && !jobId && <p className="message">Checking link…</p>}
+      {job && !hasVideo && <JobStatus job={job} />}
 
-      {(job?.status === 'ready' || job?.status === 'failed' || pollError) && (
+      {hasVideo && (
+        <>
+          <Preview job={job} videoRef={videoRef} onSeeking={onSeeking} />
+          {job.status === 'ready' && job.error && <p className="message message--error">{job.error}</p>}
+          {job.status === 'ready' && (
+            <button type="button" className="primary" onClick={findClips} disabled={submitting}>
+              Find clips
+            </button>
+          )}
+          {job.status === 'segmenting' && <ProgressBar label="Finding clips…" value={job.progress} />}
+          {job.status === 'segmented' && (
+            <ClipList key={job.id} jobId={job.id} activeIndex={activeIndex} onSelect={playRange} />
+          )}
+        </>
+      )}
+
+      {shownError && (
+        <p className="message message--error" role="alert">
+          {shownError}
+        </p>
+      )}
+
+      {(settled || pollError) && (
         <button type="button" className="secondary" onClick={reset}>
           Start over
         </button>

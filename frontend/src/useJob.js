@@ -1,13 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { getJob } from './api.js'
 
 const POLL_MS = 1000
-const DONE = ['ready', 'failed']
+// Statuses where nothing changes until the user acts.
+const SETTLED = ['ready', 'failed', 'segmented']
 
-// Polls a job once a second until it is ready or failed.
+// Polls a job once a second until it settles. Call resume() after starting new work on it.
 export function useJob(jobId) {
-  const [job, setJob] = useState(null)
-  const [error, setError] = useState(null)
+  // Tagged with the job id, so a stale result never shows for a different job.
+  const [state, setState] = useState({ id: null, job: null, error: null })
+  const [generation, setGeneration] = useState(0)
 
   useEffect(() => {
     if (!jobId) return undefined
@@ -18,22 +20,21 @@ export function useJob(jobId) {
       try {
         const next = await getJob(jobId)
         if (cancelled) return
-        setJob(next)
-        if (!DONE.includes(next.status)) timer = setTimeout(tick, POLL_MS)
+        setState({ id: jobId, job: next, error: null })
+        if (!SETTLED.includes(next.status)) timer = setTimeout(tick, POLL_MS)
       } catch (err) {
-        if (!cancelled) setError(err.message)
+        if (!cancelled) setState((prev) => ({ ...prev, id: jobId, error: err.message }))
       }
     }
 
     tick()
-    // Stops polling when the job changes or the user starts over.
     return () => {
       cancelled = true
       clearTimeout(timer)
-      setJob(null)
-      setError(null)
     }
-  }, [jobId])
+  }, [jobId, generation])
 
-  return { job, error }
+  const resume = useCallback(() => setGeneration((g) => g + 1), [])
+  const current = state.id === jobId ? state : { job: null, error: null }
+  return { job: current.job, error: current.error, resume }
 }

@@ -13,6 +13,9 @@ async function request(path, options) {
 export const getHealth = () => request('/api/health')
 export const getConfig = () => request('/api/config')
 export const getJob = (id) => request(`/api/jobs/${encodeURIComponent(id)}`)
+export const getClips = (id) => request(`/api/jobs/${encodeURIComponent(id)}/clips`)
+export const segmentJob = (id) =>
+  request(`/api/jobs/${encodeURIComponent(id)}/segment`, { method: 'POST' })
 
 export const submitYoutube = (url) =>
   request('/api/jobs/youtube', {
