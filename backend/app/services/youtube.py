@@ -18,13 +18,11 @@ ALLOWED_HOSTS = {"youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be"}
 VIDEO_ID = re.compile(r"[A-Za-z0-9_-]{11}")
 ID_PATH_PREFIXES = {"shorts", "embed", "live", "v"}
 
-# H.264 first: YouTube's default 1080p mp4 is often AV1, which OpenCV's bundled ffmpeg may not
-# decode in later steps. Then any mp4 + m4a, then anything ≤1080p merged into mp4. No re-encoding.
-FORMAT = (
-    "bv*[height<=1080][vcodec^=avc1]+ba[ext=m4a]"
-    "/bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]"
-    "/bv*[height<=1080]+ba/b[height<=1080]"
-)
+# Never AV1: OpenCV's bundled ffmpeg has no AV1 decoder, so tracking couldn't read the frames.
+FORMAT = "bv*[height<=1080][vcodec!^=av01]+ba/b[height<=1080][vcodec!^=av01]"
+# Highest resolution up to 1080p first; H.264 only breaks ties. (Preferring H.264 outright picked
+# 240p on videos whose H.264 tops out there while VP9 has 720p.) Merged into mp4, no re-encoding.
+FORMAT_SORT = ["res:1080", "vcodec:h264", "acodec:aac"]
 
 BASE_OPTS = {
     "quiet": True,
@@ -111,6 +109,7 @@ def download_job(store: JobStore, job_id: str, url: str) -> None:
     opts = {
         **BASE_OPTS,
         "format": FORMAT,
+        "format_sort": FORMAT_SORT,
         "merge_output_format": "mp4",
         "outtmpl": str(folder / "source.%(ext)s"),
         "max_filesize": settings.max_upload_mb * 1024 * 1024,

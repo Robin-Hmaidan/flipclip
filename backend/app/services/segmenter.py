@@ -122,4 +122,5 @@ def segment_job(store: JobStore, job_id: str) -> None:
                      error="Couldn't find clips in this video. Please try again.")
         return
     log.info("job %s: %d scenes -> %d clips", job_id, len(scenes), len(clips))
-    store.update(job_id, status="segmented", progress=100, clips=clips, error=None)
+    cuts = sorted(start for start, _ in scenes if start > 0)
+    store.update(job_id, status="segmented", progress=100, clips=clips, cuts=cuts, error=None)

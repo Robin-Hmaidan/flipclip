@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     # Clip length bounds for segmentation.
     min_clip_sec: float = 15
     max_clip_sec: float = 60
+    # Face detection samples per second. Faces move slowly; the crop is interpolated in between.
+    track_fps: float = Field(default=5, gt=0, le=30)
 
     # .env is optional: compose injects variables, and this lets the local venv pick them up too.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

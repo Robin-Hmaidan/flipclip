@@ -3,8 +3,9 @@
 FlipClip turns long horizontal (16:9) videos into vertical (9:16) clips for Shorts, Reels and TikTok.
 Planned pipeline: YouTube download → scene segmentation → face-tracked cropping → export.
 
-> Status: video input and segmentation. Upload a video or paste a YouTube link, then "Find clips"
-> splits it at scene cuts into 15–60 s clip candidates you can preview. Videos are deleted after 2 hours.
+> Status: video input, segmentation and vertical crop. Upload a video or paste a YouTube link, "Find
+> clips" splits it at scene cuts into 15–60 s candidates, and "Make vertical" renders any clip as a
+> 1080x1920 video whose crop follows the speaker's face. Videos are deleted after 2 hours.
 
 ## Prerequisites
 
@@ -26,6 +27,15 @@ PySceneDetect finds scene cuts. Consecutive scenes are merged until a clip reach
 (a short tail joins the previous clip). A clip longer than `MAX_CLIP_SEC` is split at a scene cut
 when both parts stay within the limits, otherwise evenly.
 
+### How the vertical crop follows the face
+
+MediaPipe (BlazeFace full-range model) looks for faces `TRACK_FPS` times per second. In each shot the
+tracker follows one person: the face with the largest total area across samples, so it doesn't jump
+between people. A dead zone ignores small movements and smoothing eases the larger ones; both reset at
+scene cuts so a new shot snaps to its subject. With no face it holds the last position (frame centre
+at the start). The crop centre is interpolated between samples for every frame, then frames are cropped
+in OpenCV and piped to ffmpeg with the clip's original audio. A job renders one clip at a time.
+
 ### Tests
 
 ```bash
@@ -43,6 +53,9 @@ docker compose exec backend python -m pytest tests
 | `POST /api/jobs/{id}/segment` | start scene detection (job must be `ready`, else 409) |
 | `GET /api/jobs/{id}/clips` | `[{index, start, end, duration, thumbnail_url}]` once `segmented` |
 | `GET /api/jobs/{id}/clips/{index}/thumbnail` | JPEG thumbnail for one clip |
+| `POST /api/jobs/{id}/clips/{index}/render` | queue a 9:16 render (202); 200 with the file if already rendered |
+| `GET /api/jobs/{id}/clips/{index}` | render `{status, progress, error, video_url}` |
+| `GET /api/jobs/{id}/clips/{index}/video` | the rendered 1080x1920 mp4 (seekable) |
 | `GET /api/config` | upload and duration limits, so the UI can check before uploading |
 
 ### Production image
@@ -76,7 +89,8 @@ backend/
   app/
     main.py          FastAPI app: CORS, routers, static frontend (prod)
     api/             HTTP routes: health, config, jobs
-    services/        business logic: job store, uploads, ffprobe, YouTube, segmenter, cleanup
+    services/        business logic: job store, uploads, ffprobe, YouTube, segmenter,
+                     tracker (face-follow crop), renderer (9:16 encode + queue), cleanup
     core/config.py   settings read from env
   requirements.txt   pinned Python dependencies
   requirements-nodeps.txt  scenedetect, installed with --no-deps

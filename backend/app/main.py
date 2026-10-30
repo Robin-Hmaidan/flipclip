@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from app.api import config, health, jobs
 from app.core.config import settings
 from app.services.jobs import job_store
+from app.services.renderer import render_queue
 from app.services.storage import cleanup_expired, cleanup_loop, jobs_root
 
 # uvicorn only configures its own loggers; without this, app logs (the detailed errors) are dropped.
@@ -24,8 +25,8 @@ async def lifespan(_: FastAPI):
     # A fresh volume (or a run outside Docker) may not have the folder yet.
     jobs_root().mkdir(parents=True, exist_ok=True)
     # Folders left by a previous run are never tracked again, so sweep them now.
-    cleanup_expired(job_store)
-    sweeper = asyncio.create_task(cleanup_loop(job_store))
+    cleanup_expired(job_store, on_delete=render_queue.discard)
+    sweeper = asyncio.create_task(cleanup_loop(job_store, render_queue.discard))
     yield
     sweeper.cancel()
     with suppress(asyncio.CancelledError):

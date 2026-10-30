@@ -3,6 +3,7 @@ import logging
 import shutil
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 from starlette.concurrency import run_in_threadpool
@@ -51,7 +52,10 @@ def delete_job_dir(job_id: str) -> None:
     shutil.rmtree(job_dir(job_id), ignore_errors=True)
 
 
-def cleanup_expired(store: JobStore, max_age: float = JOB_TTL_SEC) -> int:
+def cleanup_expired(store: JobStore, max_age: float = JOB_TTL_SEC,
+                    on_delete: Callable[[str], None] | None = None) -> int:
+    """Delete expired job folders and state. on_delete lets callers release per-job resources
+    (render workers) without this module importing them."""
     cutoff = time.time() - max_age
     removed = 0
     root = jobs_root()
@@ -64,18 +68,22 @@ def cleanup_expired(store: JobStore, max_age: float = JOB_TTL_SEC) -> int:
                 continue
             shutil.rmtree(folder, ignore_errors=True)
             store.delete(folder.name)
+            if on_delete:
+                on_delete(folder.name)
             removed += 1
     # Failed jobs have no folder left but still hold state.
     for job_id in store.expired_ids(cutoff):
         store.delete(job_id)
+        if on_delete:
+            on_delete(job_id)
     return removed
 
 
-async def cleanup_loop(store: JobStore) -> None:
+async def cleanup_loop(store: JobStore, on_delete: Callable[[str], None] | None = None) -> None:
     while True:
         await asyncio.sleep(CLEANUP_INTERVAL_SEC)
         try:
-            removed = await run_in_threadpool(cleanup_expired, store)
+            removed = await run_in_threadpool(cleanup_expired, store, JOB_TTL_SEC, on_delete)
             log.info("cleanup removed %d expired job folder(s)", removed)
         except Exception:
             # A failed sweep must not kill the loop; the next one retries.

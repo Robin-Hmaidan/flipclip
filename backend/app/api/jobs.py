@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
@@ -8,7 +8,8 @@ from starlette.requests import ClientDisconnect
 
 from app.core.config import settings
 from app.services import segmenter, youtube
-from app.services.jobs import Job, job_store
+from app.services.jobs import Clip, Job, job_store
+from app.services.renderer import render_job_clip, render_queue
 from app.services.probe import ProbeError, probe
 from app.services.storage import create_job_dir, delete_job_dir, job_dir, parse_job_id
 from app.services.upload import MULTIPART_OVERHEAD, UploadMalformed, UploadTooLarge, stream_upload
@@ -37,6 +38,14 @@ class ClipOut(BaseModel):
     end: float
     duration: float
     thumbnail_url: str
+
+
+class RenderOut(BaseModel):
+    index: int
+    status: str  # idle | queued | rendering | done | failed
+    progress: int
+    error: str | None
+    video_url: str | None
 
 
 def _out(job: Job) -> JobOut:
@@ -163,13 +172,58 @@ def list_clips(job_id: str) -> list[ClipOut]:
     ]
 
 
-@router.get("/{job_id}/clips/{index}/thumbnail")
-def clip_thumbnail(job_id: str, index: str) -> FileResponse:
+def _require_clip(job_id: str, index: str) -> tuple[Job, Clip]:
     job = _require_job(job_id)
-    # ASCII digits only; the file name is then built from the int, never from the raw string.
+    if job.status != "segmented":
+        raise HTTPException(409, "Find clips first.")
+    # ASCII digits only; file names are then built from the int, never from the raw string.
     if not (index.isascii() and index.isdigit()):
         raise HTTPException(400, "Invalid clip index.")
     i = int(index)
-    if job.status != "segmented" or i >= len(job.clips):
+    if i >= len(job.clips):
         raise HTTPException(404, "Clip not found.")
-    return FileResponse(job_dir(job.id) / "thumbs" / f"{i}.jpg", media_type="image/jpeg")
+    return job, job.clips[i]
+
+
+def _render_out(job: Job, index: int) -> RenderOut:
+    render = job.renders.get(index)
+    status = render.status if render else "idle"
+    return RenderOut(
+        index=index, status=status,
+        progress=render.progress if render else 0,
+        error=render.error if render else None,
+        video_url=f"/api/jobs/{job.id}/clips/{index}/video" if status == "done" else None,
+    )
+
+
+@router.get("/{job_id}/clips/{index}/thumbnail")
+def clip_thumbnail(job_id: str, index: str) -> FileResponse:
+    job, clip = _require_clip(job_id, index)
+    return FileResponse(job_dir(job.id) / "thumbs" / f"{clip.index}.jpg", media_type="image/jpeg")
+
+
+@router.post("/{job_id}/clips/{index}/render", response_model=RenderOut)
+def render_clip(job_id: str, index: str, response: Response) -> RenderOut:
+    job, clip = _require_clip(job_id, index)
+    render, queued = job_store.claim_render(job.id, clip.index)
+    if queued:
+        render_queue.submit(job.id, render_job_clip, job_store, job.id, clip.index)
+    # Already rendered: 200 with the existing file. Otherwise 202, accepted and in progress.
+    response.status_code = 200 if render.status == "done" else 202
+    return _render_out(job_store.get(job.id), clip.index)
+
+
+@router.get("/{job_id}/clips/{index}", response_model=RenderOut)
+def clip_render_status(job_id: str, index: str) -> RenderOut:
+    job, clip = _require_clip(job_id, index)
+    return _render_out(job, clip.index)
+
+
+@router.get("/{job_id}/clips/{index}/video")
+def clip_video(job_id: str, index: str) -> FileResponse:
+    job, clip = _require_clip(job_id, index)
+    render = job.renders.get(clip.index)
+    if render is None or render.status != "done":
+        raise HTTPException(409, "This clip hasn't been made vertical yet.")
+    # FileResponse serves Range requests, so the player can seek.
+    return FileResponse(render.path, media_type="video/mp4")

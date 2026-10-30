@@ -36,7 +36,8 @@ body {
 }
 
 .app {
-  max-width: 640px;
+  /* Wide enough for the original and the vertical clip side by side. */
+  max-width: 960px;
   margin: 0 auto;
   padding: 48px 16px;
   display: flex;
@@ -235,26 +236,37 @@ button.primary {
 .clip {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  width: 100%;
-  padding: 0 0 8px;
   overflow: hidden;
-  color: var(--fg);
-  font-weight: normal;
-  text-align: left;
   background: var(--card);
   border: 2px solid var(--border);
   border-radius: 8px;
 }
 
-.clip:hover,
-.clip:focus-visible {
+.clip--playing,
+.clip--showing {
   border-color: var(--accent);
 }
 
-.clip--active {
-  border-color: var(--accent);
+.clip--playing .clip-play {
   background: var(--accent-soft);
+}
+
+.clip-play {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 0 0 8px;
+  color: var(--fg);
+  font-weight: normal;
+  text-align: left;
+  background: transparent;
+  border-radius: 0;
+}
+
+.clip-play:hover img,
+.clip-play:focus-visible img {
+  opacity: 0.85;
 }
 
 .clip img {
@@ -280,6 +292,83 @@ button.primary {
 .clip-duration {
   color: var(--muted);
   font-size: 0.8rem;
+}
+
+.clip-actions {
+  margin-top: auto;
+  padding: 0 8px 8px;
+}
+
+.clip-actions .progress-label {
+  font-size: 0.8rem;
+}
+
+.clip-error {
+  margin: 0 0 6px;
+  color: var(--error);
+  font-size: 0.8rem;
+}
+
+button.small {
+  width: 100%;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
+/* Original and vertical side by side. Flex weights follow the aspect ratios (16:9 vs 9:16),
+   so both videos end up the same height. */
+.compare {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.compare figure {
+  min-width: 0;
+  margin: 0;
+}
+
+.compare-original {
+  flex: 1.778 1 0;
+}
+
+.compare-vertical {
+  flex: 0.5625 1 0;
+}
+
+.compare figcaption {
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.preview > div > figure {
+  margin: 0;
+}
+
+.compare-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.compare-actions button.small {
+  width: auto;
+}
+
+@media (max-width: 600px) {
+  /* Side by side the vertical clip would be a sliver; stack it under the original instead. */
+  .compare {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .compare-vertical video {
+    width: auto;
+    max-width: 100%;
+    max-height: 70vh;
+    margin: 0 auto;
+  }
 }
 
 footer {

@@ -19,6 +19,7 @@ export default function App() {
   const [jobId, setJobId] = useState(null)
   const { job, error: pollError, resume } = useJob(jobId)
   const { videoRef, playRange, activeIndex, onSeeking, stop } = useRangePlayback()
+  const [vertical, setVertical] = useState(null) // { clip, url } shown next to the original
 
   useEffect(() => {
     getHealth().then(setHealth).catch(() => setHealth(null))
@@ -65,8 +66,22 @@ export default function App() {
     }
   }
 
+  function showVertical(clip, url) {
+    stop()
+    setVertical({ clip, url })
+    // Park the original on the clip's first frame so the two line up.
+    if (videoRef.current) videoRef.current.currentTime = clip.start
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  // A finished render opens only if nothing is showing; it never replaces what the user is watching.
+  function handleRendered(clip, url) {
+    if (!vertical) showVertical(clip, url)
+  }
+
   function reset() {
     stop()
+    setVertical(null)
     setJobId(null)
     setError(null)
   }
@@ -91,7 +106,14 @@ export default function App() {
 
       {hasVideo && (
         <>
-          <Preview job={job} videoRef={videoRef} onSeeking={onSeeking} />
+          <Preview
+            job={job}
+            videoRef={videoRef}
+            onSeeking={onSeeking}
+            vertical={vertical}
+            onPlayRange={playRange}
+            onCloseVertical={() => setVertical(null)}
+          />
           {job.status === 'ready' && job.error && <p className="message message--error">{job.error}</p>}
           {job.status === 'ready' && (
             <button type="button" className="primary" onClick={findClips} disabled={submitting}>
@@ -100,7 +122,15 @@ export default function App() {
           )}
           {job.status === 'segmenting' && <ProgressBar label="Finding clips…" value={job.progress} />}
           {job.status === 'segmented' && (
-            <ClipList key={job.id} jobId={job.id} activeIndex={activeIndex} onSelect={playRange} />
+            <ClipList
+              key={job.id}
+              jobId={job.id}
+              playingIndex={activeIndex}
+              showingIndex={vertical?.clip.index}
+              onPlay={playRange}
+              onShowVertical={showVertical}
+              onRendered={handleRendered}
+            />
           )}
         </>
       )}

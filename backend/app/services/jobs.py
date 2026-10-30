@@ -5,6 +5,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 ACTIVE_STATUSES = ("queued", "downloading", "segmenting")
+ACTIVE_RENDERS = ("queued", "rendering")
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,14 @@ class Clip:
     @property
     def duration(self) -> float:
         return round(self.end - self.start, 3)
+
+
+@dataclass(frozen=True)
+class Render:
+    status: str = "idle"  # idle | queued | rendering | done | failed
+    progress: int = 0
+    error: str | None = None
+    path: Path | None = None
 
 
 @dataclass
@@ -31,6 +40,9 @@ class Job:
     video_path: Path | None = None
     media_type: str | None = None
     clips: list[Clip] | None = None
+    # Scene cut times from segmentation; the tracker resets its smoothing at each one.
+    cuts: list[float] = field(default_factory=list)
+    renders: dict[int, Render] = field(default_factory=dict)
     created_at: float = field(default_factory=time.time)
 
 
@@ -52,7 +64,8 @@ class JobStore:
         # Return a copy so callers can't mutate shared state, matching how Redis would behave.
         with self._lock:
             job = self._jobs.get(job_id)
-            return replace(job) if job else None
+            # renders is the one mutable container, so copy it too.
+            return replace(job, renders=dict(job.renders)) if job else None
 
     def update(self, job_id: str, **fields) -> None:
         with self._lock:
@@ -72,6 +85,22 @@ class JobStore:
                 setattr(job, key, value)
             return True
 
+    def claim_render(self, job_id: str, index: int) -> tuple[Render, bool]:
+        """Queue a render unless one is queued, running or done. Returns (render, newly_queued)."""
+        with self._lock:
+            job = self._jobs[job_id]
+            current = job.renders.get(index, Render())
+            if current.status in (*ACTIVE_RENDERS, "done"):
+                return current, False
+            job.renders[index] = Render(status="queued")
+            return job.renders[index], True
+
+    def update_render(self, job_id: str, index: int, **fields) -> None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job:
+                job.renders[index] = replace(job.renders.get(index, Render()), **fields)
+
     def delete(self, job_id: str) -> None:
         with self._lock:
             self._jobs.pop(job_id, None)
@@ -79,14 +108,20 @@ class JobStore:
     def is_active(self, job_id: str) -> bool:
         with self._lock:
             job = self._jobs.get(job_id)
-            return bool(job and job.status in ACTIVE_STATUSES)
+            if not job:
+                return False
+            return job.status in ACTIVE_STATUSES or any(
+                r.status in ACTIVE_RENDERS for r in job.renders.values()
+            )
 
     def expired_ids(self, cutoff: float) -> list[str]:
         with self._lock:
             return [
                 j.id
                 for j in self._jobs.values()
-                if j.created_at < cutoff and j.status not in ACTIVE_STATUSES
+                if j.created_at < cutoff
+                and j.status not in ACTIVE_STATUSES
+                and not any(r.status in ACTIVE_RENDERS for r in j.renders.values())
             ]
 
 

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { getClips } from '../api.js'
-import { formatTime } from '../format.js'
+import ClipCard from './ClipCard.jsx'
 
-export default function ClipList({ jobId, activeIndex, onSelect }) {
+export default function ClipList({ jobId, playingIndex, showingIndex, onPlay, onShowVertical, onRendered }) {
   const [clips, setClips] = useState(null)
   const [error, setError] = useState(null)
 
@@ -26,20 +26,16 @@ export default function ClipList({ jobId, activeIndex, onSelect }) {
       </h2>
       <ol className="clip-grid">
         {clips.map((clip) => (
-          <li key={clip.index}>
-            <button
-              type="button"
-              className={`clip${clip.index === activeIndex ? ' clip--active' : ''}`}
-              aria-pressed={clip.index === activeIndex}
-              onClick={() => onSelect(clip)}
-            >
-              <img src={clip.thumbnail_url} alt="" loading="lazy" width="320" height="180" />
-              <span className="clip-time">
-                {formatTime(clip.start)}–{formatTime(clip.end)}
-              </span>
-              <span className="clip-duration">{formatTime(clip.duration)}</span>
-            </button>
-          </li>
+          <ClipCard
+            key={clip.index}
+            jobId={jobId}
+            clip={clip}
+            playing={clip.index === playingIndex}
+            showing={clip.index === showingIndex}
+            onPlay={onPlay}
+            onShowVertical={onShowVertical}
+            onRendered={onRendered}
+          />
         ))}
       </ol>
     </section>

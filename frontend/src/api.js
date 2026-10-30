@@ -17,6 +17,10 @@ export const getClips = (id) => request(`/api/jobs/${encodeURIComponent(id)}/cli
 export const segmentJob = (id) =>
   request(`/api/jobs/${encodeURIComponent(id)}/segment`, { method: 'POST' })
 
+const clipPath = (id, index) => `/api/jobs/${encodeURIComponent(id)}/clips/${index}`
+export const getClipRender = (id, index) => request(clipPath(id, index))
+export const renderClip = (id, index) => request(`${clipPath(id, index)}/render`, { method: 'POST' })
+
 export const submitYoutube = (url) =>
   request('/api/jobs/youtube', {
     method: 'POST',
