@@ -11,9 +11,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 
 # Dependencies before source so code edits don't invalidate the pip layer.
-COPY requirements.txt requirements-nodeps.txt ./
+COPY requirements.txt requirements-nodeps.txt requirements-dev.txt ./
 RUN pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir --no-deps -r requirements-nodeps.txt
+    && pip install --no-cache-dir --no-deps -r requirements-nodeps.txt \
+    && pip install --no-cache-dir -r requirements-dev.txt
 
 COPY app ./app
 

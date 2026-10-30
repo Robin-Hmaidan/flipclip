@@ -3,7 +3,8 @@
 FlipClip turns long horizontal (16:9) videos into vertical (9:16) clips for Shorts, Reels and TikTok.
 Planned pipeline: YouTube download → scene segmentation → face-tracked cropping → export.
 
-> Status: project setup only. The app currently shows a health check (backend + ffmpeg version).
+> Status: video input. Upload a video file or paste a YouTube link; the backend stores it and the UI
+> shows a preview with duration and resolution. Uploaded and downloaded videos are deleted after 2 hours.
 
 ## Prerequisites
 
@@ -18,6 +19,22 @@ docker compose up
 Open **http://localhost:5173**. The API is at http://localhost:8000 (e.g. `/api/health`).
 
 To change limits or CORS origins, copy `.env.example` to `.env` and edit it.
+
+### Tests
+
+```bash
+docker compose exec backend python -m pytest tests
+```
+
+### API
+
+| Route | Purpose |
+|---|---|
+| `POST /api/jobs/upload` | multipart field `file`. 413 too big, 415 not a video, 422 too long |
+| `POST /api/jobs/youtube` | `{"url": "..."}`. YouTube links only (400 otherwise); 422 too long |
+| `GET /api/jobs/{id}` | `{id, status, progress, error, duration, width, height}` |
+| `GET /api/jobs/{id}/video` | the stored video, for the preview |
+| `GET /api/config` | upload and duration limits, so the UI can check before uploading |
 
 ### Production image
 
@@ -49,11 +66,13 @@ provides the same `cv2` module.
 backend/
   app/
     main.py          FastAPI app: CORS, routers, static frontend (prod)
-    api/             HTTP routes (health.py)
-    services/        business logic (download, scenes, crop, export)
+    api/             HTTP routes: health, config, jobs
+    services/        business logic: job store, uploads, ffprobe, YouTube, storage cleanup
     core/config.py   settings read from env
   requirements.txt   pinned Python dependencies
   requirements-nodeps.txt  scenedetect, installed with --no-deps
+  requirements-dev.txt     pytest + httpx (dev image only)
+  tests/             pytest suite, run inside the backend container
   Dockerfile         dev backend image
 frontend/            Vite + React UI (plain CSS)
 docker-compose.yml   dev: backend :8000 + Vite :5173, hot reload
