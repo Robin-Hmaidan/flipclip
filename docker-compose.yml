@@ -1,0 +1,37 @@
+# Dev setup: both services hot-reload from the mounted source.
+services:
+  backend:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Windows/macOS bind mounts don't forward file events into the container.
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./backend/app:/app/app
+      - flipclip-data:/data
+
+  frontend:
+    image: node:22-alpine
+    working_dir: /app
+    # Install inside the container: the host's node_modules has Windows-native binaries.
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    ports:
+      - "5173:5173"
+    environment:
+      API_PROXY_TARGET: http://backend:8000
+      VITE_USE_POLLING: "true"
+    volumes:
+      - ./frontend:/app
+      # Shadows the host node_modules so the two platforms never mix.
+      - frontend-node-modules:/app/node_modules
+    depends_on:
+      - backend
+
+volumes:
+  flipclip-data:
+  frontend-node-modules:

@@ -1,0 +1,16 @@
+# Pinned for Python 3.11. numpy 2.5+ requires Python 3.12, so stay on 2.4.x.
+fastapi==0.143.1
+uvicorn[standard]==0.54.0
+pydantic-settings==2.16.0
+python-multipart==0.0.32
+yt-dlp==2026.8.19
+# The only OpenCV package: mediapipe requires the contrib build, and a second OpenCV
+# package would overwrite the same cv2/ folder.
+opencv-contrib-python==5.0.0.93
+mediapipe==1.1.1
+numpy==2.4.6
+# scenedetect's own dependencies, listed here because it is installed with --no-deps
+# (see requirements-nodeps.txt). numpy above also covers it.
+click==8.5.0
+platformdirs==4.13.0
+tqdm==4.70.1

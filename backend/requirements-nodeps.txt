@@ -1,0 +1,4 @@
+# Install with: pip install --no-deps -r requirements-nodeps.txt
+# scenedetect hard-depends on opencv-python, which would clash with opencv-contrib-python.
+# Its real dependencies are pinned in requirements.txt.
+scenedetect==0.7.2
