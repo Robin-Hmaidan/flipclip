@@ -3,7 +3,17 @@ import { clipNumber, formatTimecode } from '../format.js'
 
 // The source video, and once there are clips, a phone showing the vertical result next to it
 // (or saying how to get one). Phones stack the two, and skip the empty phone (see .viewer in CSS).
-export default function Preview({ job, videoRef, onSeeking, onPause, vertical, showPhone, onPlayRange, onCloseVertical }) {
+export default function Preview({
+  job,
+  videoRef,
+  onSeeking,
+  onPause,
+  onSourceError,
+  vertical,
+  showPhone,
+  onPlayRange,
+  onCloseVertical,
+}) {
   const verticalRef = useRef(null)
 
   function playBoth() {
@@ -34,6 +44,7 @@ export default function Preview({ job, videoRef, onSeeking, onPause, vertical, s
           preload="metadata"
           onSeeking={onSeeking}
           onPause={onPause}
+          onError={onSourceError}
         />
       </figure>
 

@@ -1,11 +1,14 @@
+import os
 import subprocess
+import time
 import uuid
 
 import pytest
 
 from app.core.config import settings
 from app.services import youtube
-from app.services.storage import job_dir, jobs_root
+from app.services.jobs import JobStore
+from app.services.storage import JOB_TTL_SEC, cleanup_expired, create_job_dir, job_dir, jobs_root
 
 MB = 1024 * 1024
 
@@ -159,3 +162,25 @@ def test_unknown_job_id_not_found(client):
 def test_job_dir_refuses_invalid_ids(job_id):
     with pytest.raises(ValueError):
         job_dir(job_id)
+
+
+# --- Cleanup ------------------------------------------------------------------------------
+
+def test_cleanup_keeps_young_jobs_and_removes_old_ones():
+    """Real clock and real folder mtimes, as in production: only age decides, in seconds."""
+    store = JobStore()
+    now = time.time()
+    ages = {"young": 10 * 60, "old": JOB_TTL_SEC + 60}
+    ids = {}
+    for name, age in ages.items():
+        job = store.create()
+        store.update(job.id, status="segmented", created_at=now - age)
+        folder = create_job_dir(job.id)
+        os.utime(folder, (now - age, now - age))
+        ids[name] = job.id
+
+    assert cleanup_expired(store) == 1
+    assert store.get(ids["young"]) is not None
+    assert job_dir(ids["young"]).is_dir()
+    assert store.get(ids["old"]) is None
+    assert not job_dir(ids["old"]).exists()

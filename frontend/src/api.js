@@ -1,7 +1,15 @@
 const OFFLINE = "Can't reach FlipClip. Check your connection and try again."
 const SERVER_FAULT = 'Something went wrong on our side. Please try again.'
-// Jobs are deleted 2 hours after they start; the server then only knows "not found".
-const EXPIRED = 'This video is no longer available (videos are deleted after 2 hours). Please start again.'
+// The server answers "not found" both for jobs its 2-hour cleanup removed and for jobs it lost on a
+// restart (they live in memory). It can't tell which, so the message mustn't pick one.
+export const JOB_MISSING = 'This video is no longer on the server (it expired or the server restarted). Start again.'
+
+// Any request can be the first to find the job gone (polling stops once a job settles), so the app
+// registers one handler here rather than every caller checking. It gets the missing job's id.
+let jobMissingHandler = () => {}
+export function setJobMissingHandler(fn) {
+  jobMissingHandler = fn
+}
 
 // The status rides along so callers can tell "busy, try again soon" (429) from a real failure.
 class ApiError extends Error {
@@ -16,8 +24,10 @@ export const isBusy = (err) => err?.status === 429
 
 // FastAPI sends {detail: string} for our errors, which are written for users already.
 // Anything else (validation lists, proxy errors, empty bodies) gets a plain-words fallback.
+const isJobMissing = (body, status) => status === 404 && body?.detail === 'Job not found.'
+
 function errorMessage(body, status) {
-  if (status === 404 && body?.detail === 'Job not found.') return EXPIRED
+  if (isJobMissing(body, status)) return JOB_MISSING
   if (typeof body?.detail === 'string') return body.detail
   if (status >= 500) return SERVER_FAULT
   return `Something went wrong (error ${status}). Please try again.`
@@ -31,6 +41,10 @@ async function request(path, options) {
     throw new Error(OFFLINE) // fetch only rejects when no response arrived at all
   }
   const body = await res.json().catch(() => null)
+  if (isJobMissing(body, res.status)) {
+    const id = path.match(/^\/api\/jobs\/([^/?]+)/)?.[1]
+    if (id) jobMissingHandler(decodeURIComponent(id))
+  }
   if (!res.ok) throw new ApiError(errorMessage(body, res.status), res.status)
   return body
 }

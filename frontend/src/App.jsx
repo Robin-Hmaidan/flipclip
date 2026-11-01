@@ -1,5 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { getConfig, isBusy, segmentJob, startSample, submitYoutube, uploadVideo } from './api.js'
+import {
+  getConfig,
+  isBusy,
+  JOB_MISSING,
+  segmentJob,
+  setJobMissingHandler,
+  startSample,
+  submitYoutube,
+  uploadVideo,
+} from './api.js'
 import ClipWorkspace, { ClipSkeletons } from './components/ClipWorkspace.jsx'
 import JobStatus, { ProgressBar } from './components/JobStatus.jsx'
 import Logo from './components/Logo.jsx'
@@ -53,6 +62,15 @@ export default function App() {
   const [exportStatus, setExportStatus] = useState('idle')
   // The last way a job was started, so "Try again" can repeat it (same file, link or sample).
   const lastSubmit = useRef(null)
+  // Id of the last job the server said it doesn't have. Compared with jobId, so a late answer about
+  // an old job never hides a new one.
+  const [missingId, setMissingId] = useState(null)
+  const jobMissing = jobId !== null && missingId === jobId
+
+  useEffect(() => {
+    setJobMissingHandler(setMissingId)
+    return () => setJobMissingHandler(() => {})
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -64,7 +82,7 @@ export default function App() {
     }
   }, [configAttempt])
 
-  const hasVideo = Boolean(job && HAS_VIDEO.includes(job.status))
+  const hasVideo = Boolean(job && !jobMissing && HAS_VIDEO.includes(job.status))
   const step = currentStep({ hasVideo, vertical, exportStatus })
 
   async function start(submit, label) {
@@ -204,13 +222,16 @@ export default function App() {
           </div>
         )}
 
-        {jobId && !job && !pollError && (
+        {jobMissing && <ErrorNotice title="Video not found" message={JOB_MISSING} onRetry={reset} retryLabel="Start again" />}
+        {jobId && !jobMissing && !job && !pollError && (
           <div className="status">
             <Working>Opening video…</Working>
           </div>
         )}
-        {job && !hasVideo && <JobStatus job={job} onRetry={lastSubmit.current ? retryLast : undefined} onStartOver={reset} />}
-        {pollError && (
+        {job && !jobMissing && !hasVideo && (
+          <JobStatus job={job} onRetry={lastSubmit.current ? retryLast : undefined} onStartOver={reset} />
+        )}
+        {pollError && !jobMissing && (
           <ErrorNotice title="Lost connection to FlipClip" message={pollError} onRetry={resume}>
             <button type="button" className="secondary" onClick={reset}>
               Start over
@@ -226,6 +247,8 @@ export default function App() {
               onSeeking={onSeeking}
               // Paused by hand: the clip isn't playing any more, so nothing should say "Stop".
               onPause={stop}
+              // The <video> can't read the 404 itself; re-polling the job finds out whether it's gone.
+              onSourceError={resume}
               vertical={vertical}
               showPhone={job.status === 'segmented'}
               onPlayRange={playRange}
