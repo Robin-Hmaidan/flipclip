@@ -3,6 +3,8 @@
 FlipClip turns long horizontal (16:9) videos into vertical (9:16) clips for Shorts, Reels and TikTok.
 Planned pipeline: YouTube download → scene segmentation → face-tracked cropping → export.
 
+Source: **https://github.com/Robin-Hmaidan/flipclip**
+
 > Status: video input, segmentation, clip editor, vertical crop and export. Upload a video, paste a
 > YouTube link or try the bundled sample; "Find clips" splits it at scene cuts into 15–60 s candidates, "Edit" moves a clip's start
 > and end, and "Make vertical" renders any clip as a 1080x1920 video whose crop follows the speaker's
