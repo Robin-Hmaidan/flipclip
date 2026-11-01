@@ -13,8 +13,10 @@ Planned pipeline: YouTube download → scene segmentation → face-tracked cropp
 
 **https://marvelous-pronto-unwieldy.ngrok-free.dev**
 
+The first visit shows an ngrok notice (ngrok's free plan adds it): click **Visit Site** once.
+
 Hosted from my machine since the brief excludes paid services: the production container runs on my
-PC and an ngrok tunnel makes it public, so it's only up while that PC is on. It's one machine shared
+PC and an ngrok tunnel (a second container) makes it public, so it's only up while that PC is on. It's one machine shared
 by everyone, so it works on at most 3 videos at a time (`MAX_ACTIVE_JOBS`); while it's full, starting
 another one says so and asks you to try again in a minute. Uploads are capped at 500 MB and videos at
 60 minutes, and links must be YouTube video links.
@@ -164,10 +166,20 @@ docker run -p 7860:7860 flipclip
 .\scripts\start-demo.ps1            # add -NoBuild to skip rebuilding the image
 ```
 
-Starts the production stack, waits for it to answer, then opens the ngrok tunnel on the static domain.
-It needs ngrok (`winget install Ngrok.Ngrok`) with an authtoken (`ngrok config add-authtoken <token>`).
-Ctrl+C closes the tunnel; the app keeps running until
-`docker compose -f docker-compose.prod.yml down`.
+The tunnel is the `ngrok` service in `docker-compose.prod.yml` (official `ngrok/ngrok` image, pinned),
+behind the `tunnel` profile so a plain `up` never needs it. It reads the authtoken from its own
+gitignored file, `.env.ngrok`, not from `.env`: the app container reads `.env`, and the token stays
+out of it.
+
+```
+# .env.ngrok
+NGROK_AUTHTOKEN=<your token from https://dashboard.ngrok.com/get-started/your-authtoken>
+```
+
+The script checks the token is set, starts the app and the tunnel (the tunnel waits for the app's
+healthcheck), then confirms through ngrok's local API (http://127.0.0.1:4040) that the public URL is
+online. Both containers restart with Docker until
+`docker compose -f docker-compose.prod.yml --profile tunnel down`.
 
 ## Local setup (editor autocomplete only)
 
@@ -204,7 +216,7 @@ backend/
 frontend/            Vite + React UI (plain CSS, light and dark from the system setting)
 docs/screenshots/    UI at 375 px and desktop, for this README
 docker-compose.yml   dev: backend :8000 + Vite :5173, hot reload
-docker-compose.prod.yml  production: the root Dockerfile on :7860
+docker-compose.prod.yml  production: the root Dockerfile on :7860, ngrok tunnel (profile tunnel)
 Dockerfile           production: single container on :7860
-scripts/start-demo.ps1   production stack + ngrok tunnel for the live demo
+scripts/start-demo.ps1   production app + ngrok tunnel containers for the live demo
 ```

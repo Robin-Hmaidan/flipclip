@@ -1,5 +1,6 @@
 # Secrets and local environments
 .env
+.env.ngrok
 .venv/
 
 # Dependencies and build output

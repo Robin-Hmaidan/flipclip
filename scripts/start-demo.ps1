@@ -1,69 +1,67 @@
 <#
 .SYNOPSIS
-  Starts the public FlipClip demo: the production stack on :7860, then an ngrok tunnel to it.
+  Starts the public FlipClip demo: the production app on :7860 plus its ngrok tunnel, both in Docker.
 
 .DESCRIPTION
-  The app keeps running in Docker after the tunnel is closed (Ctrl+C); stop it with
-  docker compose -f docker-compose.prod.yml down
+  Needs NGROK_AUTHTOKEN=<token> in .env.ngrok at the repo root. Both containers restart with Docker until
+  stopped with:  docker compose -f docker-compose.prod.yml --profile tunnel down
 
 .EXAMPLE
   .\scripts\start-demo.ps1
   .\scripts\start-demo.ps1 -NoBuild
 #>
 param(
-    [string]$Domain = 'marvelous-pronto-unwieldy.ngrok-free.dev',
     # Skip rebuilding the image, for a restart without code changes.
     [switch]$NoBuild
 )
 
-# Not 'Stop': Windows PowerShell turns any stderr of a native command (docker, ngrok) into an
-# error then. Every native call below is checked through $LASTEXITCODE instead.
+# Not 'Stop': Windows PowerShell turns any stderr of a native command (docker) into an error
+# then. Every native call below is checked through $LASTEXITCODE instead.
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
-$compose = Join-Path $root 'docker-compose.prod.yml'
-$port = 7860
+$compose = @('compose', '-f', (Join-Path $root 'docker-compose.prod.yml'), '--profile', 'tunnel')
+$tokenFile = Join-Path $root '.env.ngrok'
+$appEnvFile = Join-Path $root '.env'
+$tokenLine = '^\s*NGROK_AUTHTOKEN\s*=\s*\S+'
 
 function Fail($message) {
     Write-Host "start-demo: $message" -ForegroundColor Red
     exit 1
 }
 
-# winget adds ngrok to PATH only for shells opened after the install.
-$ngrok = Get-Command ngrok -ErrorAction SilentlyContinue
-if (-not $ngrok) {
-    $ngrok = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\Ngrok.Ngrok_*\ngrok.exe" -ErrorAction SilentlyContinue |
-        Select-Object -First 1
+# Only tests that a value is set; the token itself is never printed. Compose would also refuse a
+# missing file, but not an empty one.
+$hasToken = (Test-Path $tokenFile) -and (Select-String -Path $tokenFile -Pattern $tokenLine -Quiet)
+if (-not $hasToken) { Fail "NGROK_AUTHTOKEN is not set. Add this line to $tokenFile : NGROK_AUTHTOKEN=<your token>" }
+# .env is read by the app container, so a token there would leak into it.
+if ((Test-Path $appEnvFile) -and (Select-String -Path $appEnvFile -Pattern $tokenLine -Quiet)) {
+    Fail "Move the NGROK_AUTHTOKEN line out of $appEnvFile into $tokenFile (.env reaches the app container)."
 }
-if (-not $ngrok) { Fail 'ngrok not found. Install it with: winget install Ngrok.Ngrok' }
-$ngrokExe = if ($ngrok.Source) { $ngrok.Source } else { $ngrok.FullName }
-
-& $ngrokExe config check *> $null
-if ($LASTEXITCODE -ne 0) { Fail 'ngrok has no authtoken yet. Run: ngrok config add-authtoken <YOUR_TOKEN>' }
 
 docker info *> $null
 if ($LASTEXITCODE -ne 0) { Fail 'Docker is not running. Start Docker Desktop and try again.' }
 
-Write-Host 'Starting the production stack...' -ForegroundColor Cyan
-$upArgs = @('compose', '-f', $compose, 'up', '-d')
+# --wait returns once the app is healthy and the tunnel container is running, or fails if not.
+Write-Host 'Starting the app and the tunnel...' -ForegroundColor Cyan
+$upArgs = $compose + @('up', '-d', '--wait', '--wait-timeout', '180')
 if (-not $NoBuild) { $upArgs += '--build' }
 & docker @upArgs
 if ($LASTEXITCODE -ne 0) { Fail 'docker compose up failed (see above).' }
 
-Write-Host "Waiting for http://localhost:$port ..." -ForegroundColor Cyan
-$deadline = (Get-Date).AddSeconds(120)
-$healthy = $false
-while ((Get-Date) -lt $deadline) {
+# The container running doesn't mean ngrok got online (bad token, domain in use): ask its API.
+$deadline = (Get-Date).AddSeconds(60)
+$url = $null
+while ((Get-Date) -lt $deadline -and -not $url) {
     try {
-        $res = Invoke-WebRequest "http://localhost:$port/api/health" -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
-        if ($res.StatusCode -eq 200) { $healthy = $true; break }
-    } catch {
-        Start-Sleep -Seconds 2
-    }
+        $tunnels = Invoke-RestMethod 'http://127.0.0.1:4040/api/tunnels' -TimeoutSec 5 -ErrorAction Stop
+        $url = $tunnels.tunnels | Where-Object { $_.public_url -like 'https://*' } | Select-Object -First 1 -ExpandProperty public_url
+    } catch { }
+    if (-not $url) { Start-Sleep -Seconds 2 }
 }
-if (-not $healthy) { Fail "The app did not answer on port $port within 2 minutes. Check: docker compose -f docker-compose.prod.yml logs" }
+if (-not $url) {
+    & docker @($compose + @('logs', '--tail', '20', 'ngrok'))
+    Fail 'The tunnel did not come online within a minute (ngrok log above).'
+}
 
-Write-Host "FlipClip is up. Public URL: https://$Domain (Ctrl+C closes the tunnel; the app keeps running)" -ForegroundColor Green
-& $ngrokExe http $port --domain=$Domain
-# A script's exit code ignores its last native command, so pass ngrok's failure on (bad token,
-# old agent, domain in use: ngrok prints which above).
-if ($LASTEXITCODE -ne 0) { Fail "ngrok exited with code $LASTEXITCODE (see above)." }
+Write-Host "FlipClip is live at $url (local: http://localhost:7860)" -ForegroundColor Green
+Write-Host 'Stop it with: docker compose -f docker-compose.prod.yml --profile tunnel down'

@@ -1,5 +1,6 @@
 # Production: the root Dockerfile's single image (API + built UI) on one port.
 # Run: docker compose -f docker-compose.prod.yml up -d --build, then open http://localhost:7860
+# Public demo: add --profile tunnel (needs NGROK_AUTHTOKEN in .env.ngrok); scripts/start-demo.ps1 does both.
 # Own project name: sharing the dev stack's would make each treat the other's containers as orphans.
 name: flipclip-prod
 services:
@@ -18,6 +19,36 @@ services:
     restart: unless-stopped
     volumes:
       - flipclip-prod-data:/data
+    # The slim image has no curl; Python is there anyway.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:7860/api/health', timeout=5)"]
+      interval: 10s
+      timeout: 6s
+      retries: 3
+      start_period: 30s
+
+  # Public URL for the demo. Only started with --profile tunnel, so the stack runs without a token.
+  ngrok:
+    image: ngrok/ngrok:3.39.13-alpine
+    profiles: [tunnel]
+    # --log=stdout: the agent logs nothing otherwise, so `docker compose logs ngrok` (and start-demo's
+    # failure output) would be empty, and session drops and reconnects would go unseen.
+    command: ["http", "app:7860", "--url=https://marvelous-pronto-unwieldy.ngrok-free.dev", "--log=stdout"]
+    # Its own file, not .env: the app reads .env, and the token has no business in the app container.
+    # Required only when this profile runs; a plain `up` doesn't look for it.
+    env_file:
+      - path: .env.ngrok
+        required: true
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    # Inspector and its API (tunnel status), on this machine only.
+    ports:
+      - "127.0.0.1:4040:4040"
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
 
 volumes:
   flipclip-prod-data:
