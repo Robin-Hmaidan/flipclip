@@ -29,8 +29,24 @@ BASE_OPTS = {
     "no_warnings": True,
     "noprogress": True,
     "noplaylist": True,
-    "socket_timeout": 30,
+    # Generous for slow or flaky home lines: a media connection can stall for well over 30 s.
+    "socket_timeout": 60,
     "logger": logging.getLogger("yt_dlp"),
+}
+
+
+def retry_backoff(n: int) -> float:
+    """Seconds to wait before a retry: 1, 2, 4, 8, then 10 s. yt-dlp passes n=0 for the first."""
+    return min(2**n, 10)
+
+
+# A stalled or refused connection is retried instead of failing the job. Each retry resumes the
+# partial .part file from where it stopped (HTTP Range), so progress isn't lost or reset.
+RETRY_OPTS = {
+    "retries": 10,
+    "fragment_retries": 10,
+    "continuedl": True,
+    "retry_sleep_functions": {"http": retry_backoff, "fragment": retry_backoff},
 }
 
 
@@ -108,6 +124,7 @@ def download_job(store: JobStore, job_id: str, url: str) -> None:
 
     opts = {
         **BASE_OPTS,
+        **RETRY_OPTS,
         "format": FORMAT,
         "format_sort": FORMAT_SORT,
         "merge_output_format": "mp4",

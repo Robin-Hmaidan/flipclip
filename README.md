@@ -59,6 +59,10 @@ All shots, including the loading, error and exporting states, are in [docs/scree
   works on at most 3 videos at once (`MAX_ACTIVE_JOBS`) and asks you to try again in a minute when full.
 - **YouTube may block cloud servers.** YouTube often refuses downloads from data-centre IP addresses,
   which is one more reason the demo runs from a home connection. Uploading a file always works.
+- **Long videos mean long downloads on slow lines.** The YouTube download runs at the speed of the
+  home connection, so a long video can take minutes before clipping starts. A stalled or refused
+  connection is retried up to 10 times (60 s socket timeout, short backoff) and resumes where it
+  stopped rather than starting over; only when every retry fails does the job fail.
 - **The sample has no scene cuts.** It's one continuous shot, so it splits evenly (three clips of
   about 55 s) instead of at cuts. Videos with real cuts split at them.
 - **The crop follows the largest face in each shot.** There is no speaker detection: in a two-person
