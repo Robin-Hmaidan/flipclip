@@ -1,83 +1,127 @@
-import { useEffect, useState } from 'react'
-import { getConfig, getHealth, segmentJob, submitYoutube, uploadVideo } from './api.js'
-import ClipList from './components/ClipList.jsx'
+import { useEffect, useRef, useState } from 'react'
+import { getConfig, segmentJob, startSample, submitYoutube, uploadVideo } from './api.js'
+import ClipList, { ClipSkeletons } from './components/ClipList.jsx'
 import JobStatus, { ProgressBar } from './components/JobStatus.jsx'
+import Logo from './components/Logo.jsx'
+import ErrorNotice from './components/Notice.jsx'
 import Preview from './components/Preview.jsx'
+import Steps from './components/Steps.jsx'
 import VideoInput from './components/VideoInput.jsx'
+import { formatSize } from './format.js'
 import { useJob } from './useJob.js'
 import { useRangePlayback } from './useRangePlayback.js'
 
 // Statuses in which the job has a playable video.
 const HAS_VIDEO = ['ready', 'segmenting', 'segmented']
 
+// The step the user is on: what they're doing now, not the furthest they've been.
+function currentStep({ hasVideo, vertical, exportStatus, editing }) {
+  if (editing) return 'edit'
+  if (exportStatus !== 'idle') return 'export'
+  if (vertical) return 'edit'
+  return hasVideo ? 'clips' : 'input'
+}
+
 export default function App() {
-  const [health, setHealth] = useState(null)
   const [config, setConfig] = useState(null)
+  const [configError, setConfigError] = useState(null)
+  const [configAttempt, setConfigAttempt] = useState(0)
   const [uploadPct, setUploadPct] = useState(null) // null when no upload is running
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState(null)
+  const [pending, setPending] = useState(null) // label while a new job is being created
+  const [error, setError] = useState(null) // { title, message, retry? }
   const [jobId, setJobId] = useState(null)
   const { job, error: pollError, resume } = useJob(jobId)
   const { videoRef, playRange, activeIndex, onSeeking, stop } = useRangePlayback()
-  const [vertical, setVertical] = useState(null) // { clip, url } shown next to the original
+  const [vertical, setVertical] = useState(null) // { clip, url, downloadUrl } shown next to the original
+  const [editing, setEditing] = useState(false)
+  const [exportStatus, setExportStatus] = useState('idle')
+  // The last way a job was started, so "Try again" can repeat it (same file, link or sample).
+  const lastSubmit = useRef(null)
 
   useEffect(() => {
-    getHealth().then(setHealth).catch(() => setHealth(null))
-    getConfig().then(setConfig).catch(() => setConfig(null))
-  }, [])
+    let cancelled = false
+    getConfig()
+      .then((c) => !cancelled && setConfig(c))
+      .catch((err) => !cancelled && setConfigError(err.message))
+    return () => {
+      cancelled = true
+    }
+  }, [configAttempt])
 
-  const hasVideo = job && HAS_VIDEO.includes(job.status)
+  const hasVideo = Boolean(job && HAS_VIDEO.includes(job.status))
+  const step = currentStep({ hasVideo, vertical, exportStatus, editing })
 
-  async function start(submit) {
+  async function start(submit, label) {
+    lastSubmit.current = { submit, label }
     setError(null)
     setJobId(null)
-    setSubmitting(true)
+    setPending(label)
     try {
       const created = await submit()
       setJobId(created.id)
     } catch (err) {
-      setError(err.message)
+      setError({ title: "We couldn't start with that video", message: err.message, retry: () => start(submit, label) })
     } finally {
-      setSubmitting(false)
+      setPending(null)
       setUploadPct(null)
     }
+  }
+
+  function retryLast() {
+    if (lastSubmit.current) start(lastSubmit.current.submit, lastSubmit.current.label)
   }
 
   function handleFile(file) {
     // Checked here too so a huge file fails instantly, not after minutes of uploading.
     if (config && file.size > config.max_upload_mb * 1024 * 1024) {
-      setError(`File is larger than ${config.max_upload_mb} MB.`)
+      setError({
+        title: 'That file is too big',
+        message: `Videos can be up to ${formatSize(config.max_upload_mb)}. This one is ${formatSize(Math.ceil(file.size / 1024 / 1024))}.`,
+      })
       return
     }
     setUploadPct(0)
-    start(() => uploadVideo(file, setUploadPct))
+    start(() => uploadVideo(file, setUploadPct), 'Uploading…')
+  }
+
+  // The sample goes straight on to finding clips: one click from nothing to a list of clips.
+  function handleSample() {
+    start(async () => {
+      const created = await startSample()
+      await segmentJob(created.id)
+      return created
+    }, 'Preparing the sample…')
   }
 
   async function findClips() {
     setError(null)
-    setSubmitting(true)
+    setPending('Starting…')
     try {
       await segmentJob(job.id)
       resume()
     } catch (err) {
-      setError(err.message)
+      setError({ title: "We couldn't start finding clips", message: err.message, retry: findClips })
     } finally {
-      setSubmitting(false)
+      setPending(null)
     }
   }
 
-  function showVertical(clip, url) {
+  function showVertical(clip, render) {
     stop()
-    setVertical({ clip, url })
+    setVertical({ clip, url: render.video_url, downloadUrl: render.download_url })
     // Park the original on the clip's first frame so the two line up.
-    if (videoRef.current) videoRef.current.currentTime = clip.start
-    window.scrollTo({ top: 0, behavior: 'smooth' })
+    const video = videoRef.current
+    if (video) {
+      video.currentTime = clip.start
+      video.closest('section')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
   }
 
   // The editor has its own player; the main one shouldn't keep playing underneath it.
-  function pauseMain() {
+  function openEditor() {
     stop()
     videoRef.current?.pause()
+    setEditing(true)
   }
 
   // The edited clip's vertical render is gone, so it can't stay open.
@@ -86,8 +130,8 @@ export default function App() {
   }
 
   // A finished render opens only if nothing is showing; it never replaces what the user is watching.
-  function handleRendered(clip, url) {
-    if (!vertical) showVertical(clip, url)
+  function handleRendered(clip, render) {
+    if (!vertical) showVertical(clip, render)
   }
 
   function reset() {
@@ -95,76 +139,167 @@ export default function App() {
     setVertical(null)
     setJobId(null)
     setError(null)
+    setEditing(false)
+    setExportStatus('idle')
+    window.scrollTo({ top: 0 })
   }
 
-  const shownError = error || pollError
-  const settled = job && ['ready', 'failed', 'segmented'].includes(job.status)
+  const working = pending !== null
 
   return (
-    <main className="app">
-      <header>
-        <h1>FlipClip</h1>
-        <p className="tagline">Turn horizontal videos into vertical clips.</p>
+    <div className="page">
+      <header className="topbar">
+        <div className="brand">
+          <Logo />
+          <div>
+            <p className="brand-name">FlipClip</p>
+            <p className="brand-tagline">Long videos in, vertical clips out</p>
+          </div>
+        </div>
+        {jobId && (
+          <button type="button" className="secondary" onClick={reset}>
+            New video
+          </button>
+        )}
       </header>
 
-      {!jobId && <VideoInput onFile={handleFile} onUrl={(url) => start(() => submitYoutube(url))} disabled={submitting} />}
+      <main className="app">
+        <Steps current={step} />
 
-      {uploadPct !== null && (
-        <ProgressBar label={uploadPct < 100 ? 'Uploading…' : 'Checking video…'} value={uploadPct} />
-      )}
-      {submitting && uploadPct === null && !jobId && <p className="message">Checking link…</p>}
-      {job && !hasVideo && <JobStatus job={job} />}
-
-      {hasVideo && (
-        <>
-          <Preview
-            job={job}
-            videoRef={videoRef}
-            onSeeking={onSeeking}
-            vertical={vertical}
-            onPlayRange={playRange}
-            onCloseVertical={() => setVertical(null)}
+        {configError && (
+          <ErrorNotice
+            title="Can't reach FlipClip right now"
+            message={configError}
+            onRetry={() => {
+              setConfigError(null)
+              setConfigAttempt((a) => a + 1)
+            }}
           />
-          {job.status === 'ready' && job.error && <p className="message message--error">{job.error}</p>}
-          {job.status === 'ready' && (
-            <button type="button" className="primary" onClick={findClips} disabled={submitting}>
-              Find clips
-            </button>
-          )}
-          {job.status === 'segmenting' && <ProgressBar label="Finding clips…" value={job.progress} />}
-          {job.status === 'segmented' && (
-            <ClipList
-              key={job.id}
-              jobId={job.id}
-              duration={job.duration}
+        )}
+
+        {!jobId && (
+          <>
+            <div className="intro">
+              <h1>Turn a long video into vertical clips</h1>
+              <p>
+                FlipClip finds the best cuts, then crops each clip to 9:16 and keeps the speaker in frame. Ready for
+                Shorts, Reels and TikTok.
+              </p>
+            </div>
+            {error && <ErrorNotice title={error.title} message={error.message} onRetry={error.retry} />}
+            {working && (
+              <div className="card">
+                {uploadPct !== null ? (
+                  <ProgressBar label={uploadPct < 100 ? 'Uploading…' : 'Checking video…'} value={uploadPct} />
+                ) : (
+                  <p className="working">
+                    <span className="spinner" aria-hidden="true" />
+                    {pending}
+                  </p>
+                )}
+              </div>
+            )}
+            <VideoInput
               limits={config}
-              playingIndex={activeIndex}
-              showingIndex={vertical?.clip.index}
-              onPlay={playRange}
-              onShowVertical={showVertical}
-              onRendered={handleRendered}
-              onEditOpen={pauseMain}
-              onEdited={handleEdited}
+              onFile={handleFile}
+              onUrl={(url) => start(() => submitYoutube(url), 'Checking link…')}
+              onSample={handleSample}
+              disabled={working}
             />
-          )}
-        </>
-      )}
+          </>
+        )}
 
-      {shownError && (
-        <p className="message message--error" role="alert">
-          {shownError}
-        </p>
-      )}
+        {jobId && !job && !pollError && (
+          <div className="card">
+            <p className="working">
+              <span className="spinner" aria-hidden="true" />
+              Loading your video…
+            </p>
+          </div>
+        )}
+        {job && !hasVideo && <JobStatus job={job} onRetry={lastSubmit.current ? retryLast : undefined} onStartOver={reset} />}
+        {pollError && (
+          <ErrorNotice title="Lost touch with FlipClip" message={pollError} onRetry={resume}>
+            <button type="button" className="secondary" onClick={reset}>
+              Start over
+            </button>
+          </ErrorNotice>
+        )}
 
-      {(settled || pollError) && (
-        <button type="button" className="secondary" onClick={reset}>
-          Start over
-        </button>
-      )}
+        {hasVideo && (
+          <>
+            <Preview
+              job={job}
+              videoRef={videoRef}
+              onSeeking={onSeeking}
+              vertical={vertical}
+              showPlaceholder={job.status === 'segmented'}
+              onPlayRange={playRange}
+              onCloseVertical={() => setVertical(null)}
+            />
 
-      <footer>
-        {health ? `Backend ${health.status} · ffmpeg ${health.ffmpeg_version ?? 'not found'}` : 'Backend unreachable'}
+            {job.status === 'ready' &&
+              (job.error || error ? (
+                <ErrorNotice
+                  title="We couldn't find clips"
+                  message={error?.message ?? job.error}
+                  onRetry={findClips}
+                  retryLabel={working ? 'Starting…' : 'Try again'}
+                />
+              ) : (
+                <div className="card next">
+                  <div>
+                    <p className="next-title">Video ready</p>
+                    <p className="section-meta">Next, FlipClip splits it into clips at its scene cuts.</p>
+                  </div>
+                  <button type="button" onClick={findClips} disabled={working}>
+                    {working ? 'Starting…' : 'Find clips'}
+                  </button>
+                </div>
+              ))}
+
+            {job.status === 'segmenting' && (
+              <>
+                <div className="card">
+                  <ProgressBar label="Finding clips…" value={job.progress} />
+                </div>
+                <ClipSkeletons label="Finding clips…" />
+              </>
+            )}
+
+            {job.status === 'segmented' && (
+              <ClipList
+                key={job.id}
+                jobId={job.id}
+                duration={job.duration}
+                limits={config}
+                playingIndex={activeIndex}
+                showingIndex={vertical?.clip.index}
+                onPlay={playRange}
+                onShowVertical={showVertical}
+                onRendered={handleRendered}
+                onEditOpen={openEditor}
+                onEditClose={() => setEditing(false)}
+                onEdited={handleEdited}
+                onExportStatus={setExportStatus}
+                onStartOver={reset}
+              />
+            )}
+          </>
+        )}
+      </main>
+
+      <footer className="footer">
+        <h2>How it works</h2>
+        <ol>
+          <li>Add a video: upload a file, paste a YouTube link or try the sample.</li>
+          <li>
+            FlipClip splits it at its scene cuts into clips of up to {config?.max_clip_sec ?? 60} seconds.
+          </li>
+          <li>Each clip is cropped to 9:16 following the speaker's face. Edit, then download.</li>
+        </ol>
+        <p className="footer-note">Videos are deleted from the server after 2 hours.</p>
       </footer>
-    </main>
+    </div>
   )
 }

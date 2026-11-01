@@ -16,9 +16,10 @@ export default function ClipCard({
   onShowVertical,
   onRendered,
   onEditOpen,
+  onEditClose,
   onEdited,
 }) {
-  const render = useClipRender(jobId, clip.index, (url) => onRendered(clip, url), syncKey)
+  const render = useClipRender(jobId, clip.index, (done) => onRendered(clip, done), syncKey)
   const busy = render.status === 'queued' || render.status === 'rendering'
   const [editing, setEditing] = useState(false)
 
@@ -27,15 +28,28 @@ export default function ClipCard({
     setEditing(true)
   }
 
+  function closeEditor() {
+    setEditing(false)
+    onEditClose()
+  }
+
   return (
     <li className={`clip${playing ? ' clip--playing' : ''}${showing ? ' clip--showing' : ''}`}>
-      <button type="button" className="clip-play" aria-pressed={playing} onClick={() => onPlay(clip)}>
-        <img src={clip.thumbnail_url} alt="" loading="lazy" width="320" height="180" />
+      <button
+        type="button"
+        className="clip-play"
+        aria-pressed={playing}
+        aria-label={`Play clip ${clip.index + 1} in the original`}
+        onClick={() => onPlay(clip)}
+      >
+        <span className="clip-thumb">
+          <img src={clip.thumbnail_url} alt="" loading="lazy" width="320" height="180" />
+          <span className="clip-number">{clip.index + 1}</span>
+          <span className="clip-length">{clip.duration.toFixed(1)} s</span>
+        </span>
         <span className="clip-time">
           {formatPrecise(clip.start)}–{formatPrecise(clip.end)}
-        </span>
-        <span className="clip-duration">
-          {clip.duration.toFixed(1)} s{clip.edited && <span className="clip-tag">edited</span>}
+          {clip.edited && <span className="clip-tag">edited</span>}
         </span>
       </button>
 
@@ -46,12 +60,12 @@ export default function ClipCard({
           </button>
         )}
         {busy && (
-          <ProgressBar label={render.status === 'queued' ? 'Waiting…' : 'Rendering…'} value={render.progress} />
+          <ProgressBar label={render.status === 'queued' ? 'Waiting…' : 'Making vertical…'} value={render.progress} />
         )}
         {render.status === 'done' && (
           <>
-            <button type="button" className="small" onClick={() => onShowVertical(clip, render.video_url)}>
-              {showing ? 'Showing vertical' : 'Show vertical'}
+            <button type="button" className="small" onClick={() => onShowVertical(clip, render)}>
+              {showing ? 'Showing above' : 'Before / after'}
             </button>
             <a className="button small secondary" href={render.download_url} download>
               Download
@@ -60,7 +74,9 @@ export default function ClipCard({
         )}
         {render.status === 'failed' && (
           <>
-            <p className="clip-error">{render.error}</p>
+            <p className="clip-error" role="alert">
+              {render.error || "Couldn't make this clip vertical."}
+            </p>
             <button type="button" className="small" onClick={render.start}>
               Try again
             </button>
@@ -79,10 +95,10 @@ export default function ClipCard({
           limits={limits}
           busy={busy}
           onSaved={(saved) => {
-            setEditing(false)
+            closeEditor()
             onEdited(saved)
           }}
-          onClose={() => setEditing(false)}
+          onClose={closeEditor}
         />
       )}
     </li>

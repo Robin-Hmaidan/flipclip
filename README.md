@@ -3,11 +3,23 @@
 FlipClip turns long horizontal (16:9) videos into vertical (9:16) clips for Shorts, Reels and TikTok.
 Planned pipeline: YouTube download → scene segmentation → face-tracked cropping → export.
 
-> Status: video input, segmentation, clip editor, vertical crop and export. Upload a video or paste a
-> YouTube link, "Find clips" splits it at scene cuts into 15–60 s candidates, "Edit" moves a clip's start
+> Status: video input, segmentation, clip editor, vertical crop and export. Upload a video, paste a
+> YouTube link or try the bundled sample; "Find clips" splits it at scene cuts into 15–60 s candidates, "Edit" moves a clip's start
 > and end, and "Make vertical" renders any clip as a 1080x1920 video whose crop follows the speaker's
 > face. Each rendered clip downloads on its own, and "Export all (zip)" renders whatever is left and
 > downloads every clip in one zip. Videos are deleted after 2 hours.
+
+## Screenshots
+
+| Phone (375 px) | Desktop |
+|---|---|
+| ![Input screen on a phone](docs/screenshots/mobile-01-input.png) | ![Input screen](docs/screenshots/desktop-01-input.png) |
+| ![Clips on a phone](docs/screenshots/mobile-04-clips.png) | ![Clips](docs/screenshots/desktop-04-clips.png) |
+| ![Before and after on a phone](docs/screenshots/mobile-05-before-after.png) | ![Before and after](docs/screenshots/desktop-05-before-after.png) |
+| ![Clip editor on a phone](docs/screenshots/mobile-06-edit.png) | ![Clip editor](docs/screenshots/desktop-06-edit.png) |
+| ![Export on a phone](docs/screenshots/mobile-08-exported.png) | ![Export](docs/screenshots/desktop-08-exported.png) |
+
+All shots, including loading, error and dark-mode states, are in [docs/screenshots/](docs/screenshots/).
 
 ## Prerequisites
 
@@ -20,6 +32,9 @@ docker compose up
 ```
 
 Open **http://localhost:5173**. The API is at http://localhost:8000 (e.g. `/api/health`).
+
+**Quickest look:** click **Try a sample video**. It starts a normal job from a bundled 3-minute
+interview and goes straight on to finding clips, so there's nothing to upload or paste.
 
 To change limits, clip lengths or CORS origins, copy `.env.example` to `.env` and edit it.
 
@@ -61,6 +76,20 @@ them, so the zip only starts once those renders are finished. Its progress is th
 into the zip in 1 MB chunks, written to the job folder, which cleanup deletes with the rest of the job.
 Files are named `flipclip_clip01.mp4`, `flipclip_clip02.mp4`, … in clip order.
 
+### Sample video
+
+`backend/app/assets/sample.mp4` is the three answers (20.4–85.0 s, 95.25–140.1 s, 150.3–206.4 s) of
+[*Amber Straughn Canned Interview JWST 2023*](https://commons.wikimedia.org/wiki/File:NASA_Interview_Opportunity-_Celebrate_the_James_Webb_Space_Telescope%E2%80%99s_First_Year_Of_Amazing_Science_With_a_New_Observation_Live_Shots_(SVS14349_-_Amber_Straughn_Canned_Interview_JWST_2023).webm)
+by NASA's Scientific Visualization Studio ([source page](https://svs.gsfc.nasa.gov/14349)), joined with the
+question cards between them removed and re-encoded to H.264 1080p (2:46, 26 MB).
+
+**License: public domain.** It is a work of the US federal government (NASA), so it carries no
+copyright in the US and needs no attribution. NASA's
+[media guidelines](https://www.nasa.gov/nasa-brand-center/images-and-media/) still apply: don't use
+it to suggest that NASA or the person shown endorses FlipClip. The credit above is a courtesy.
+
+`SAMPLE_VIDEO` points the route at another file; the button hides when the file is missing.
+
 ### Tests
 
 ```bash
@@ -73,6 +102,7 @@ docker compose exec backend python -m pytest tests
 |---|---|
 | `POST /api/jobs/upload` | multipart field `file`. 413 too big, 415 not a video, 422 too long |
 | `POST /api/jobs/youtube` | `{"url": "..."}`. YouTube links only (400 otherwise); 422 too long |
+| `POST /api/jobs/sample` | new job from the bundled sample video (201, `ready`); 404 if the file is missing |
 | `GET /api/jobs/{id}` | `{id, status, progress, error, duration, width, height}` |
 | `GET /api/jobs/{id}/video` | the stored video, for the preview |
 | `POST /api/jobs/{id}/segment` | start scene detection (job must be `ready`, else 409) |
@@ -87,7 +117,7 @@ docker compose exec backend python -m pytest tests
 | `POST /api/jobs/{id}/export` | render the missing clips, then zip all of them (202); 200 if already exported |
 | `GET /api/jobs/{id}/export` | `{status, progress, error, download_url}`; status `idle`/`rendering`/`zipping`/`done`/`failed` |
 | `GET /api/jobs/{id}/export/download` | `flipclip_clips.zip`; 404 until the export is done |
-| `GET /api/config` | upload, duration and clip-length limits, so the UI can check before sending |
+| `GET /api/config` | upload, duration and clip-length limits, and `sample_available`, so the UI can check before sending |
 
 All `/clips/...` and `/export...` routes answer 409 until the job is `segmented`.
 
@@ -126,12 +156,14 @@ backend/
                      editor (clip bounds + invalidation), tracker (face-follow crop),
                      renderer (9:16 encode + queue), exporter (zip of all clips), cleanup
     core/config.py   settings read from env
+    assets/          sample.mp4 for "Try a sample video" (public domain, see above)
   requirements.txt   pinned Python dependencies
   requirements-nodeps.txt  scenedetect, installed with --no-deps
   requirements-dev.txt     pytest + httpx (dev image only)
   tests/             pytest suite, run inside the backend container
   Dockerfile         dev backend image
-frontend/            Vite + React UI (plain CSS)
+frontend/            Vite + React UI (plain CSS, light and dark from the system setting)
+docs/screenshots/    UI at 375 px and desktop, for this README
 docker-compose.yml   dev: backend :8000 + Vite :5173, hot reload
 Dockerfile           production: single container on :7860
 ```

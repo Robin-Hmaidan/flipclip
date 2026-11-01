@@ -1,10 +1,24 @@
-// FastAPI sends {detail: string} for our errors and {detail: [...]} for validation errors.
+const OFFLINE = "Can't reach FlipClip. Check your connection and try again."
+const SERVER_FAULT = 'Something went wrong on our side. Please try again.'
+// Jobs are deleted 2 hours after they start; the server then only knows "not found".
+const EXPIRED = 'This video is no longer available (videos are deleted after 2 hours). Please start again.'
+
+// FastAPI sends {detail: string} for our errors, which are written for users already.
+// Anything else (validation lists, proxy errors, empty bodies) gets a plain-words fallback.
 function errorMessage(body, status) {
-  return typeof body?.detail === 'string' ? body.detail : `Request failed (HTTP ${status}).`
+  if (status === 404 && body?.detail === 'Job not found.') return EXPIRED
+  if (typeof body?.detail === 'string') return body.detail
+  if (status >= 500) return SERVER_FAULT
+  return `Something went wrong (error ${status}). Please try again.`
 }
 
 async function request(path, options) {
-  const res = await fetch(path, options)
+  let res
+  try {
+    res = await fetch(path, options)
+  } catch {
+    throw new Error(OFFLINE) // fetch only rejects when no response arrived at all
+  }
   const body = await res.json().catch(() => null)
   if (!res.ok) throw new Error(errorMessage(body, res.status))
   return body
@@ -38,6 +52,8 @@ export const submitYoutube = (url) =>
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),
   })
+
+export const startSample = () => request('/api/jobs/sample', { method: 'POST' })
 
 // XMLHttpRequest rather than fetch: fetch has no upload progress events.
 export function uploadVideo(file, onProgress) {

@@ -1,3 +1,5 @@
+import ErrorNotice from './Notice.jsx'
+
 const LABELS = {
   queued: 'Waiting to start…',
   downloading: 'Downloading from YouTube…',
@@ -8,9 +10,16 @@ export function ProgressBar({ label, value }) {
     <div className="progress">
       <div className="progress-label">
         <span>{label}</span>
-        <span>{value}%</span>
+        <span className="progress-value">{value}%</span>
       </div>
-      <div className="progress-track" role="progressbar" aria-valuenow={value} aria-valuemin={0} aria-valuemax={100}>
+      <div
+        className="progress-track"
+        role="progressbar"
+        aria-label={label}
+        aria-valuenow={value}
+        aria-valuemin={0}
+        aria-valuemax={100}
+      >
         <div className="progress-fill" style={{ width: `${value}%` }} />
       </div>
     </div>
@@ -18,9 +27,19 @@ export function ProgressBar({ label, value }) {
 }
 
 // Shown until the job has a video: download progress, or why it failed.
-export default function JobStatus({ job }) {
+export default function JobStatus({ job, onRetry, onStartOver }) {
   if (job.status === 'failed') {
-    return <p className="message message--error">{job.error || 'Something went wrong.'}</p>
+    return (
+      <ErrorNotice title="We couldn't get that video" message={job.error || 'Something went wrong.'} onRetry={onRetry}>
+        <button type="button" className="secondary" onClick={onStartOver}>
+          Choose another video
+        </button>
+      </ErrorNotice>
+    )
   }
-  return <ProgressBar label={LABELS[job.status] ?? job.status} value={job.progress} />
+  return (
+    <div className="card">
+      <ProgressBar label={LABELS[job.status] ?? 'Working…'} value={job.progress} />
+    </div>
+  )
 }

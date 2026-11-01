@@ -1,2 +1,4 @@
 # Source is mounted into Linux containers, so keep LF even with core.autocrlf on Windows.
 * text=auto eol=lf
+# Bundled sample video: never touch line endings.
+*.mp4 binary

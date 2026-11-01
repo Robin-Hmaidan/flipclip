@@ -3,6 +3,8 @@ from pathlib import Path
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+APP_DIR = Path(__file__).resolve().parent.parent
+
 
 class Settings(BaseSettings):
     max_upload_mb: int = 500
@@ -17,6 +19,8 @@ class Settings(BaseSettings):
     edit_min_sec: float = 3
     # Face detection samples per second. Faces move slowly; the crop is interpolated in between.
     track_fps: float = Field(default=5, gt=0, le=30)
+    # Bundled video behind "Try a sample video"; the button hides when the file is missing.
+    sample_video: Path = APP_DIR / "assets" / "sample.mp4"
 
     # .env is optional: compose injects variables, and this lets the local venv pick them up too.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

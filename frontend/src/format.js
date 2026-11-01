@@ -15,3 +15,14 @@ export function formatPrecise(seconds) {
   const s = ((tenths % 600) / 10).toFixed(1).padStart(4, '0')
   return h ? `${h}:${m}:${s}` : `${m}:${s}`
 }
+
+// Upload and length limits in plain words: 500 -> "500 MB", 2048 -> "2 GB"; 3600 -> "60 minutes".
+export function formatSize(mb) {
+  return mb >= 1024 && mb % 1024 === 0 ? `${mb / 1024} GB` : `${mb} MB`
+}
+
+export function formatLength(seconds) {
+  const minutes = Math.round(seconds / 60)
+  if (minutes >= 120 && minutes % 60 === 0) return `${minutes / 60} hours`
+  return minutes === 1 ? '1 minute' : `${minutes} minutes`
+}

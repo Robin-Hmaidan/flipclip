@@ -1,9 +1,11 @@
 import { useRef } from 'react'
 import { formatTime } from '../format.js'
 
-// The source video, plus the rendered vertical clip beside it when one is open.
-export default function Preview({ job, videoRef, onSeeking, vertical, onPlayRange, onCloseVertical }) {
+// The source video. Once there are clips it becomes "Before", next to the vertical "After" clip,
+// or next to a placeholder that says how to get one. Phones stack the two (see .compare in CSS).
+export default function Preview({ job, videoRef, onSeeking, vertical, showPlaceholder, onPlayRange, onCloseVertical }) {
   const verticalRef = useRef(null)
+  const paired = Boolean(vertical) || showPlaceholder
 
   function playBoth() {
     const v = verticalRef.current
@@ -14,10 +16,24 @@ export default function Preview({ job, videoRef, onSeeking, vertical, onPlayRang
     v.play().catch(() => {})
   }
 
+  const range = vertical && `${formatTime(vertical.clip.start)}–${formatTime(vertical.clip.end)}`
+
   return (
-    <div className="preview">
-      <div className={vertical ? 'compare' : undefined}>
+    <section className="card preview" aria-labelledby="preview-title">
+      <div className="section-head">
+        <h2 id="preview-title">{vertical ? `Clip ${vertical.clip.index + 1}: before and after` : 'Your video'}</h2>
+        <p className="section-meta">
+          {formatTime(job.duration)} · {job.width} × {job.height}
+        </p>
+      </div>
+
+      <div className={paired ? 'compare' : undefined}>
         <figure className="compare-original">
+          {paired && (
+            <figcaption>
+              <span className="badge">Before</span> Original 16:9{range && ` · ${range}`}
+            </figcaption>
+          )}
           {/* Keyed by id so a new job always loads a fresh source. */}
           <video
             key={job.id}
@@ -28,41 +44,41 @@ export default function Preview({ job, videoRef, onSeeking, vertical, onPlayRang
             preload="metadata"
             onSeeking={onSeeking}
           />
-          {vertical && <figcaption>Original</figcaption>}
         </figure>
+
         {vertical && (
           <figure className="compare-vertical">
-            <video key={vertical.url} ref={verticalRef} src={vertical.url} controls playsInline preload="metadata" />
             <figcaption>
-              Vertical · {formatTime(vertical.clip.start)}–{formatTime(vertical.clip.end)}
+              <span className="badge badge--accent">After</span> Vertical 9:16
             </figcaption>
+            <video key={vertical.url} ref={verticalRef} src={vertical.url} controls playsInline preload="metadata" />
           </figure>
+        )}
+
+        {!vertical && showPlaceholder && (
+          <div className="compare-vertical compare-empty">
+            <span className="badge badge--accent">After</span>
+            <div className="compare-empty-frame" aria-hidden="true" />
+            <p>
+              Your vertical clip shows up here. Tap <strong>Make vertical</strong> on any clip below.
+            </p>
+          </div>
         )}
       </div>
 
-      {vertical ? (
-        <div className="compare-actions">
-          <button type="button" className="small" onClick={playBoth}>
-            Play side by side
+      {vertical && (
+        <div className="button-row">
+          <button type="button" onClick={playBoth}>
+            Play both
           </button>
-          <button type="button" className="small secondary" onClick={onCloseVertical}>
-            Close vertical
+          <a className="button secondary" href={vertical.downloadUrl} download>
+            Download
+          </a>
+          <button type="button" className="secondary" onClick={onCloseVertical}>
+            Close
           </button>
         </div>
-      ) : (
-        <dl className="meta">
-          <div>
-            <dt>Duration</dt>
-            <dd>{formatTime(job.duration)}</dd>
-          </div>
-          <div>
-            <dt>Resolution</dt>
-            <dd>
-              {job.width} × {job.height}
-            </dd>
-          </div>
-        </dl>
       )}
-    </div>
+    </section>
   )
 }

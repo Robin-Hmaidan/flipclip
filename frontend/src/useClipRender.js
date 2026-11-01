@@ -5,6 +5,7 @@ const POLL_MS = 1000
 const IDLE = { status: 'idle', progress: 0, error: null, video_url: null }
 
 // Render state for one clip: start() queues the render, then polls until done or failed.
+// onDone gets the finished state (video_url, download_url).
 // A new syncKey re-reads the state from the server, for renders something else started (an export).
 export function useClipRender(jobId, index, onDone, syncKey) {
   const [state, setState] = useState(IDLE)
@@ -32,7 +33,7 @@ export function useClipRender(jobId, index, onDone, syncKey) {
           return
         }
         setPolling(false)
-        if (next.status === 'done' && requestedRef.current) onDoneRef.current?.(next.video_url)
+        if (next.status === 'done' && requestedRef.current) onDoneRef.current?.(next)
       } catch (err) {
         if (cancelled) return
         setState((prev) => ({ ...prev, status: 'failed', error: err.message }))
@@ -68,7 +69,7 @@ export function useClipRender(jobId, index, onDone, syncKey) {
     try {
       const next = await renderClip(jobId, index)
       setState(next)
-      if (next.status === 'done') onDoneRef.current?.(next.video_url)
+      if (next.status === 'done') onDoneRef.current?.(next)
       else setPolling(true)
     } catch (err) {
       setState((prev) => ({ ...prev, status: 'failed', error: err.message }))

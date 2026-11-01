@@ -1,4 +1,6 @@
 import logging
+import shutil
+from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request, Response
 from fastapi.responses import FileResponse
@@ -10,7 +12,7 @@ from app.core.config import settings
 from app.services import editor, exporter, segmenter, youtube
 from app.services.jobs import Clip, Job, job_store
 from app.services.renderer import render_job_clip, render_queue
-from app.services.probe import ProbeError, probe
+from app.services.probe import ProbeError, VideoInfo, probe
 from app.services.storage import create_job_dir, delete_job_dir, job_dir, parse_job_id
 from app.services.upload import MULTIPART_OVERHEAD, UploadMalformed, UploadTooLarge, stream_upload
 
@@ -121,11 +123,37 @@ async def upload(request: Request) -> JobOut:
         _discard(job.id)
         raise
 
+    return _mark_ready(job.id, dest, info)
+
+
+def _mark_ready(job_id: str, video: Path, info: VideoInfo) -> JobOut:
     job_store.update(
-        job.id, status="ready", progress=100, duration=info.duration,
-        width=info.width, height=info.height, video_path=dest, media_type=info.media_type,
+        job_id, status="ready", progress=100, duration=info.duration,
+        width=info.width, height=info.height, video_path=video, media_type=info.media_type,
     )
-    return _out(job_store.get(job.id))
+    return _out(job_store.get(job_id))
+
+
+# Sync handler: copying and probing block, so FastAPI runs this in its threadpool.
+@router.post("/sample", status_code=201, response_model=JobOut)
+def from_sample() -> JobOut:
+    source = settings.sample_video
+    if not source.is_file():
+        raise HTTPException(404, "The sample video isn't available.")
+    job = job_store.create()
+    # A copy, not a link: the job folder is the job's own, and cleanup deletes it whole.
+    dest = create_job_dir(job.id) / "source"
+    try:
+        try:
+            shutil.copyfile(source, dest)
+            info = probe(dest)
+        except ProbeError as exc:
+            log.error("sample video %s is unreadable: %s", source, exc)
+            raise HTTPException(500, "The sample video couldn't be read.")
+    except BaseException:
+        _discard(job.id)
+        raise
+    return _mark_ready(job.id, dest, info)
 
 
 # Sync handler: yt-dlp's metadata call blocks, so FastAPI runs this in its threadpool.
