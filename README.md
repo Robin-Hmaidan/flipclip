@@ -10,6 +10,8 @@ The demo runs on my PC, so it's only up while that PC is on (see [Trade-offs](#t
 
 Source: **https://github.com/Robin-Hmaidan/flipclip**
 
+Part 2 and Part 3 answers: **[docs/ANSWERS.pdf](docs/ANSWERS.pdf)**
+
 ## Run it yourself
 
 1. Install [Docker](https://docs.docker.com/get-docker/). Nothing else is needed.
