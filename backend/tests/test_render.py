@@ -3,6 +3,7 @@ import subprocess
 
 import pytest
 
+from app.core.config import settings
 from tests.helpers import segmented_job, wait_for_render
 
 
@@ -50,6 +51,17 @@ def test_render_vertical_clip(client, monkeypatch, av_video, tmp_path):
     # Rendering again returns the existing file instead of re-encoding.
     again = client.post(f"{base}/render")
     assert again.status_code == 200 and again.json()["video_url"] == state["video_url"]
+
+
+def test_render_uses_configured_crf(client, monkeypatch, av_video):
+    monkeypatch.setattr(settings, "render_crf", 33)
+    job = segmented_job(client, monkeypatch, av_video)
+    base = f"/api/jobs/{job['id']}/clips/0"
+    client.post(f"{base}/render")
+    state = wait_for_render(client, base)
+    assert state["status"] == "done", state
+    # x264 writes its options into the stream, so the file itself says which CRF made it.
+    assert b"crf=33.0" in client.get(state["video_url"]).content
 
 
 def test_render_requires_segmented_job(client, make_video):

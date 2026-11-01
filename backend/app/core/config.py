@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     # Jobs that may be busy (uploading, downloading, finding clips, rendering, exporting) at once.
     # Starting work on another answers 429; the public demo runs on one machine.
     max_active_jobs: int = Field(default=3, ge=1)
+    # x264 quality of rendered clips: lower is better and bigger. 27 keeps a 55 s 1080x1920 clip
+    # around 14 MB (20 made it 31 MB) and looks the same on a phone; downloads go through a home tunnel.
+    render_crf: int = Field(default=27, ge=0, le=51)
 
     # .env is optional: compose injects variables, and this lets the local venv pick them up too.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

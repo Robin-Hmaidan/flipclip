@@ -60,7 +60,7 @@ def render_clip(src: Path, start: float, end: float, cuts: Sequence[float], dest
             "-ss", f"{first_t:.6f}", "-t", f"{total / fps:.6f}", "-i", str(src),
             "-map", "0:v:0", "-map", "1:a:0?",  # "?": sources without audio still render
             "-vf", f"scale={OUT_W}:{OUT_H}:flags=lanczos,format=yuv420p",
-            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", str(settings.render_crf),
             "-c:a", "aac", "-b:a", "160k",
             "-movflags", "+faststart",  # index up front so the browser can seek right away
             str(tmp),

@@ -90,6 +90,8 @@ between people. A dead zone ignores small movements and smoothing eases the larg
 scene cuts so a new shot snaps to its subject. With no face it holds the last position (frame centre
 at the start). The crop centre is interpolated between samples for every frame, then frames are cropped
 in OpenCV and piped to ffmpeg with the clip's original audio. A job renders one clip at a time.
+Clips are H.264 at `RENDER_CRF` (default 27): a 55 s clip is about 14 MB, small enough to download
+quickly through the demo's home tunnel and indistinguishable on a phone from CRF 20 at twice the size.
 
 ### How export works
 

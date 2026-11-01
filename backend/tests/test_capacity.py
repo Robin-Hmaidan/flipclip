@@ -56,6 +56,17 @@ def test_limit_must_be_positive(monkeypatch):
         Settings()
 
 
+def test_render_crf_default_is_27():
+    assert Settings().render_crf == 27
+
+
+@pytest.mark.parametrize("value", ["-1", "52"])
+def test_render_crf_must_be_valid_x264(monkeypatch, value):
+    monkeypatch.setenv("RENDER_CRF", value)
+    with pytest.raises(ValidationError):
+        Settings()
+
+
 # --- Starting a job -----------------------------------------------------------------------
 
 def test_sample_refused_when_full(client, one_slot):
