@@ -12,8 +12,8 @@ function download(url) {
   a.remove()
 }
 
-// onStatus reports idle/rendering/zipping/done/failed, for the step indicator.
-export default function ExportPanel({ jobId, refreshKey, onStarted, onStatus }) {
+// onStatus reports idle/rendering/zipping/done/failed, for the step bar.
+export default function ExportPanel({ jobId, count, refreshKey, onStarted, onStatus }) {
   const exp = useExport(jobId, { onStarted, onReady: download, refreshKey })
 
   useEffect(() => {
@@ -21,31 +21,44 @@ export default function ExportPanel({ jobId, refreshKey, onStarted, onStatus }) 
   }, [exp.status, onStatus])
 
   return (
-    <div className="export">
-      {exp.status === 'idle' && (
-        <button type="button" onClick={exp.start}>
-          Export all (zip)
-        </button>
-      )}
-      {exp.busy && (
-        <ProgressBar label={exp.status === 'zipping' ? 'Zipping…' : 'Making clips vertical…'} value={exp.progress} />
-      )}
-      {/* Kept after the automatic download, in case the browser blocked it or it needs saving again. */}
-      {exp.status === 'done' && (
-        <a className="button" href={exp.download_url} download>
-          Download zip
-        </a>
-      )}
-      {exp.status === 'failed' && (
-        <>
-          <p className="export-error" role="alert">
-            {exp.error || "The export didn't finish."}
-          </p>
-          <button type="button" onClick={exp.start}>
-            Try again
-          </button>
-        </>
-      )}
-    </div>
+    <section className="export" aria-labelledby="export-title">
+      <div className="panel-head">
+        <h2 id="export-title" className="label">
+          Export
+        </h2>
+      </div>
+      <div className="export-body">
+        <p className="meta">
+          All {count} {count === 1 ? 'clip' : 'clips'} as vertical videos in one .zip file. Clips that aren't vertical yet
+          are made vertical first.
+        </p>
+        <div className="export-action">
+          {exp.status === 'idle' && (
+            <button type="button" onClick={exp.start}>
+              Download all (.zip)
+            </button>
+          )}
+          {exp.busy && (
+            <ProgressBar label={exp.status === 'zipping' ? 'Zipping…' : 'Making clips vertical…'} value={exp.progress} />
+          )}
+          {/* Kept after the automatic download, in case the browser blocked it or it needs saving again. */}
+          {exp.status === 'done' && (
+            <a className="button" href={exp.download_url} download>
+              Download .zip
+            </a>
+          )}
+          {exp.status === 'failed' && (
+            <>
+              <p className="problem" role="alert">
+                {exp.error || "The export didn't finish."}
+              </p>
+              <button type="button" onClick={exp.start}>
+                Try again
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </section>
   )
 }

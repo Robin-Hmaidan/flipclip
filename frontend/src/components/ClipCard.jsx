@@ -1,61 +1,73 @@
-import { useState } from 'react'
-import { formatPrecise } from '../format.js'
+import { useEffect, useRef } from 'react'
+import { clipNumber, formatSeconds, formatTimecode } from '../format.js'
 import { useClipRender } from '../useClipRender.js'
-import ClipEditor from './ClipEditor.jsx'
 import { ProgressBar } from './JobStatus.jsx'
 
+// One frame of the film strip: pressing the picture selects the clip and plays it in the source.
+// onBusy(index, busy) tells the editor whether this clip is being made vertical, which blocks saving.
 export default function ClipCard({
   jobId,
   clip,
-  duration,
-  limits,
+  selected,
   playing,
   showing,
   syncKey,
-  onPlay,
+  onSelect,
   onShowVertical,
   onRendered,
-  onEditOpen,
-  onEditClose,
-  onEdited,
+  onBusy,
 }) {
   const render = useClipRender(jobId, clip.index, (done) => onRendered(clip, done), syncKey)
   const busy = render.status === 'queued' || render.status === 'rendering'
-  const [editing, setEditing] = useState(false)
 
-  function openEditor() {
-    onEditOpen()
-    setEditing(true)
-  }
+  useEffect(() => {
+    onBusy(clip.index, busy)
+  }, [clip.index, busy, onBusy])
 
-  function closeEditor() {
-    setEditing(false)
-    onEditClose()
-  }
+  // Selected from the timeline: bring this frame into view within the strip, without moving the page.
+  const itemRef = useRef(null)
+  useEffect(() => {
+    const item = itemRef.current
+    const strip = item?.parentElement
+    if (!selected || !strip) return
+    const left = item.offsetLeft
+    if (left < strip.scrollLeft || left + item.offsetWidth > strip.scrollLeft + strip.clientWidth) {
+      strip.scrollTo({ left, behavior: 'smooth' })
+    }
+  }, [selected])
+
+  const state = showing ? 'In the phone' : playing ? 'Playing' : null
 
   return (
-    <li className={`clip${playing ? ' clip--playing' : ''}${showing ? ' clip--showing' : ''}`}>
+    <li ref={itemRef} className={`frame${selected ? ' frame--selected' : ''}`}>
       <button
         type="button"
-        className="clip-play"
-        aria-pressed={playing}
-        aria-label={`Play clip ${clip.index + 1} in the original`}
-        onClick={() => onPlay(clip)}
+        className="frame-select"
+        aria-pressed={selected}
+        aria-label={`Clip ${clip.index + 1}, ${formatSeconds(clip.duration)}: select and play`}
+        onClick={() => onSelect(clip)}
       >
-        <span className="clip-thumb">
-          <img src={clip.thumbnail_url} alt="" loading="lazy" width="320" height="180" />
-          <span className="clip-number">{clip.index + 1}</span>
-          <span className="clip-length">{clip.duration.toFixed(1)} s</span>
+        <span className="frame-film">
+          <span className="frame-picture">
+            <img src={clip.thumbnail_url} alt="" loading="lazy" width="320" height="180" />
+            <span className="frame-num mono">{clipNumber(clip.index)}</span>
+            <span className="frame-len mono">{formatSeconds(clip.duration)}</span>
+          </span>
         </span>
-        <span className="clip-time">
-          {formatPrecise(clip.start)}–{formatPrecise(clip.end)}
-          {clip.edited && <span className="clip-tag">edited</span>}
+        <span className="frame-info">
+          <span className="mono">
+            {formatTimecode(clip.start)}–{formatTimecode(clip.end)}
+          </span>
+          <span className="frame-tags">
+            {clip.edited && <span className="tag">Edited</span>}
+            {state && <span className="tag tag--live">{state}</span>}
+          </span>
         </span>
       </button>
 
-      <div className="clip-actions">
+      <div className="frame-actions">
         {render.status === 'idle' && (
-          <button type="button" className="small" onClick={render.start}>
+          <button type="button" className="secondary" onClick={render.start}>
             Make vertical
           </button>
         )}
@@ -64,43 +76,25 @@ export default function ClipCard({
         )}
         {render.status === 'done' && (
           <>
-            <button type="button" className="small" onClick={() => onShowVertical(clip, render)}>
-              {showing ? 'Showing above' : 'Before / after'}
+            <button type="button" className="secondary" aria-pressed={showing} onClick={() => onShowVertical(clip, render)}>
+              {showing ? 'Showing in phone' : 'Show in phone'}
             </button>
-            <a className="button small secondary" href={render.download_url} download>
-              Download
+            <a className="button secondary" href={render.download_url} download>
+              Download clip
             </a>
           </>
         )}
         {render.status === 'failed' && (
           <>
-            <p className="clip-error" role="alert">
+            <p className="problem" role="alert">
               {render.error || "Couldn't make this clip vertical."}
             </p>
-            <button type="button" className="small" onClick={render.start}>
+            <button type="button" onClick={render.start}>
               Try again
             </button>
           </>
         )}
-        <button type="button" className="small secondary" onClick={openEditor}>
-          Edit
-        </button>
       </div>
-
-      {editing && (
-        <ClipEditor
-          jobId={jobId}
-          clip={clip}
-          duration={duration}
-          limits={limits}
-          busy={busy}
-          onSaved={(saved) => {
-            closeEditor()
-            onEdited(saved)
-          }}
-          onClose={closeEditor}
-        />
-      )}
     </li>
   )
 }

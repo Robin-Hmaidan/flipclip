@@ -19,16 +19,19 @@ Source: **https://github.com/Robin-Hmaidan/flipclip**
    cd flipclip
    docker compose -f docker-compose.prod.yml up
    ```
-3. Open **http://localhost:7860** and click **Try a sample video**.
+3. Open **http://localhost:7860** and click **Try the sample video**.
 
 ## What it does
 
-1. **Add a video:** upload a file (up to 500 MB), paste a YouTube link, or try the bundled sample.
+The steps bar at the top follows these four steps:
+
+1. **Import:** upload a file (up to 500 MB), paste a YouTube link, or try the bundled sample.
    Videos can be up to 60 minutes long.
-2. **Find clips:** it splits the video at scene changes into clips of 15–60 seconds.
-3. **Edit (optional):** move a clip's start and end.
-4. **Make vertical:** it renders a 1080x1920 clip whose crop follows the speaker's face.
-5. **Download:** one clip at a time, or "Export all (zip)" for every clip in one file.
+2. **Cut:** it splits the video at scene changes into clips of 15–60 seconds, shown as blocks on a
+   timeline under the video. Optionally drag a clip's edges to change where it starts and ends.
+3. **Reframe:** "Make vertical" renders a 1080x1920 clip whose crop follows the speaker's face,
+   shown in a phone frame next to the original.
+4. **Export:** "Download clip" for one clip, or "Download all (.zip)" for every clip in one file.
 
 Videos and clips are deleted automatically after about 2 hours.
 
@@ -36,13 +39,13 @@ Videos and clips are deleted automatically after about 2 hours.
 
 | Phone (375 px) | Desktop |
 |---|---|
-| ![Input screen on a phone](docs/screenshots/mobile-01-input.png) | ![Input screen](docs/screenshots/desktop-01-input.png) |
-| ![Clips on a phone](docs/screenshots/mobile-04-clips.png) | ![Clips](docs/screenshots/desktop-04-clips.png) |
+| ![Import screen on a phone](docs/screenshots/mobile-01-input.png) | ![Import screen](docs/screenshots/desktop-01-input.png) |
+| ![Timeline and clips on a phone](docs/screenshots/mobile-04-clips.png) | ![Timeline and clips](docs/screenshots/desktop-04-clips.png) |
 | ![Before and after on a phone](docs/screenshots/mobile-05-before-after.png) | ![Before and after](docs/screenshots/desktop-05-before-after.png) |
-| ![Clip editor on a phone](docs/screenshots/mobile-06-edit.png) | ![Clip editor](docs/screenshots/desktop-06-edit.png) |
+| ![Editing a cut on a phone](docs/screenshots/mobile-06-edit.png) | ![Editing a cut](docs/screenshots/desktop-06-edit.png) |
 | ![Export on a phone](docs/screenshots/mobile-08-exported.png) | ![Export](docs/screenshots/desktop-08-exported.png) |
 
-All shots, including loading, error and dark-mode states, are in [docs/screenshots/](docs/screenshots/).
+All shots, including the loading, error and exporting states, are in [docs/screenshots/](docs/screenshots/).
 
 ## Trade-offs
 
@@ -62,7 +65,7 @@ All shots, including loading, error and dark-mode states, are in [docs/screensho
   a 1080p video), which is then scaled up to 1080x1920. A 360p source is scaled up much further.
 - **Smaller files over perfect quality.** Clips are encoded at CRF 27 (`RENDER_CRF`): a 55 s clip is
   about 14 MB instead of 31 MB at CRF 20, and looks the same on a phone. Fine detail is slightly softer.
-- **The zip doubles disk use.** "Export all" copies every clip into the zip, so each clip is on disk
+- **The zip doubles disk use.** "Download all (.zip)" copies every clip into the zip, so each clip is on disk
   twice until the job is deleted (about 2 hours).
 
 ## How it works
@@ -75,8 +78,10 @@ when both parts stay within the limits, otherwise evenly.
 
 ### How editing works
 
-"Edit" opens a range slider over the clip plus 30 s either side (clamped to the video), with ±1 s
-buttons for each end and a preview that plays only the selection. Clips are independent, so an edited
+Selecting a clip (on the timeline or in the film strip) puts a handle on each of its edges on the
+timeline, which spans the whole video. Dragging a handle, or arrow keys on a focused one, moves that end
+and shows its frame in the source player; ±1 s buttons and "Play selection" sit under the timeline.
+"Save cut" appears once something changed. Clips are independent, so an edited
 clip may overlap the next one. Its length must stay between `EDIT_MIN_SEC` (default 3 s) and
 `MAX_CLIP_SEC`; the editor says why when it can't save.
 
@@ -227,13 +232,13 @@ backend/
                      renderer (9:16 encode + queue), exporter (zip of all clips),
                      storage (job folders + 2-hour cleanup)
     core/config.py   settings read from env
-    assets/          sample.mp4 for "Try a sample video" (public domain, see above)
+    assets/          sample.mp4 for "Try the sample video" (public domain, see above)
   requirements.txt   pinned Python dependencies
   requirements-nodeps.txt  scenedetect, installed with --no-deps
   requirements-dev.txt     pytest + httpx (dev image only)
   tests/             pytest suite, run inside the backend container
   Dockerfile         dev backend image
-frontend/            Vite + React UI (plain CSS, light and dark from the system setting)
+frontend/            Vite + React UI (plain CSS, dark editor theme, system fonts)
 docs/screenshots/    UI at 375 px and desktop, for this README
 docker-compose.yml   dev: backend :8000 + Vite :5173, hot reload
 docker-compose.prod.yml  production: the root Dockerfile on :7860, ngrok tunnel (profile tunnel)

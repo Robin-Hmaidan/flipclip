@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getConfig, isBusy, segmentJob, startSample, submitYoutube, uploadVideo } from './api.js'
-import ClipList, { ClipSkeletons } from './components/ClipList.jsx'
+import ClipWorkspace, { ClipSkeletons } from './components/ClipWorkspace.jsx'
 import JobStatus, { ProgressBar } from './components/JobStatus.jsx'
 import Logo from './components/Logo.jsx'
 import ErrorNotice from './components/Notice.jsx'
@@ -24,11 +24,19 @@ function failure(err, title, retry) {
 }
 
 // The step the user is on: what they're doing now, not the furthest they've been.
-function currentStep({ hasVideo, vertical, exportStatus, editing }) {
-  if (editing) return 'edit'
+function currentStep({ hasVideo, vertical, exportStatus }) {
   if (exportStatus !== 'idle') return 'export'
-  if (vertical) return 'edit'
-  return hasVideo ? 'clips' : 'input'
+  if (vertical) return 'reframe'
+  return hasVideo ? 'cut' : 'import'
+}
+
+function Working({ children }) {
+  return (
+    <p className="working">
+      <span className="spinner" aria-hidden="true" />
+      {children}
+    </p>
+  )
 }
 
 export default function App() {
@@ -41,8 +49,7 @@ export default function App() {
   const [jobId, setJobId] = useState(null)
   const { job, error: pollError, resume } = useJob(jobId)
   const { videoRef, playRange, activeIndex, onSeeking, stop } = useRangePlayback()
-  const [vertical, setVertical] = useState(null) // { clip, url, downloadUrl } shown next to the original
-  const [editing, setEditing] = useState(false)
+  const [vertical, setVertical] = useState(null) // { clip, url, downloadUrl } shown in the phone
   const [exportStatus, setExportStatus] = useState('idle')
   // The last way a job was started, so "Try again" can repeat it (same file, link or sample).
   const lastSubmit = useRef(null)
@@ -58,7 +65,7 @@ export default function App() {
   }, [configAttempt])
 
   const hasVideo = Boolean(job && HAS_VIDEO.includes(job.status))
-  const step = currentStep({ hasVideo, vertical, exportStatus, editing })
+  const step = currentStep({ hasVideo, vertical, exportStatus })
 
   async function start(submit, label) {
     lastSubmit.current = { submit, label }
@@ -69,7 +76,7 @@ export default function App() {
       const created = await submit()
       setJobId(created.id)
     } catch (err) {
-      setError(failure(err, "We couldn't start with that video", () => start(submit, label)))
+      setError(failure(err, "Couldn't import that video", () => start(submit, label)))
     } finally {
       setPending(null)
       setUploadPct(null)
@@ -99,7 +106,7 @@ export default function App() {
       const created = await startSample()
       await segmentJob(created.id)
       return created
-    }, 'Preparing the sample…')
+    }, 'Loading the sample…')
   }
 
   async function findClips() {
@@ -109,7 +116,7 @@ export default function App() {
       await segmentJob(job.id)
       resume()
     } catch (err) {
-      setError(failure(err, "We couldn't start finding clips", findClips))
+      setError(failure(err, "Couldn't find clips", findClips))
     } finally {
       setPending(null)
     }
@@ -126,14 +133,7 @@ export default function App() {
     }
   }
 
-  // The editor has its own player; the main one shouldn't keep playing underneath it.
-  function openEditor() {
-    stop()
-    videoRef.current?.pause()
-    setEditing(true)
-  }
-
-  // The edited clip's vertical render is gone, so it can't stay open.
+  // The edited clip's vertical render is gone, so it can't stay in the phone.
   function handleEdited(clip) {
     if (vertical?.clip.index === clip.index) setVertical(null)
   }
@@ -148,7 +148,6 @@ export default function App() {
     setVertical(null)
     setJobId(null)
     setError(null)
-    setEditing(false)
     setExportStatus('idle')
     window.scrollTo({ top: 0 })
   }
@@ -158,26 +157,21 @@ export default function App() {
   return (
     <div className="page">
       <header className="topbar">
-        <div className="brand">
-          <Logo />
-          <div>
-            <p className="brand-name">FlipClip</p>
-            <p className="brand-tagline">Long videos in, vertical clips out</p>
-          </div>
+        <Logo />
+        <Steps current={step} />
+        <div className="topbar-end">
+          {jobId && (
+            <button type="button" className="secondary" onClick={reset}>
+              New video
+            </button>
+          )}
         </div>
-        {jobId && (
-          <button type="button" className="secondary" onClick={reset}>
-            New video
-          </button>
-        )}
       </header>
 
-      <main className="app">
-        <Steps current={step} />
-
+      <main className="main">
         {configError && (
           <ErrorNotice
-            title="Can't reach FlipClip right now"
+            title="Can't reach FlipClip"
             message={configError}
             onRetry={() => {
               setConfigError(null)
@@ -187,24 +181,16 @@ export default function App() {
         )}
 
         {!jobId && (
-          <>
-            <div className="intro">
-              <h1>Turn a long video into vertical clips</h1>
-              <p>
-                FlipClip finds the best cuts, then crops each clip to 9:16 and keeps the speaker in frame. Ready for
-                Shorts, Reels and TikTok.
-              </p>
-            </div>
+          <div className="import">
+            <h1>Import a video</h1>
+            <p className="lede">FlipClip cuts it into short clips and reframes each one to vertical 9:16.</p>
             {error && <ErrorNotice title={error.title} message={error.message} tone={error.tone} onRetry={error.retry} />}
             {working && (
-              <div className="card">
+              <div className="status">
                 {uploadPct !== null ? (
                   <ProgressBar label={uploadPct < 100 ? 'Uploading…' : 'Checking video…'} value={uploadPct} />
                 ) : (
-                  <p className="working">
-                    <span className="spinner" aria-hidden="true" />
-                    {pending}
-                  </p>
+                  <Working>{pending}</Working>
                 )}
               </div>
             )}
@@ -215,20 +201,17 @@ export default function App() {
               onSample={handleSample}
               disabled={working}
             />
-          </>
+          </div>
         )}
 
         {jobId && !job && !pollError && (
-          <div className="card">
-            <p className="working">
-              <span className="spinner" aria-hidden="true" />
-              Loading your video…
-            </p>
+          <div className="status">
+            <Working>Opening video…</Working>
           </div>
         )}
         {job && !hasVideo && <JobStatus job={job} onRetry={lastSubmit.current ? retryLast : undefined} onStartOver={reset} />}
         {pollError && (
-          <ErrorNotice title="Lost touch with FlipClip" message={pollError} onRetry={resume}>
+          <ErrorNotice title="Lost connection to FlipClip" message={pollError} onRetry={resume}>
             <button type="button" className="secondary" onClick={reset}>
               Start over
             </button>
@@ -241,8 +224,10 @@ export default function App() {
               job={job}
               videoRef={videoRef}
               onSeeking={onSeeking}
+              // Paused by hand: the clip isn't playing any more, so nothing should say "Stop".
+              onPause={stop}
               vertical={vertical}
-              showPlaceholder={job.status === 'segmented'}
+              showPhone={job.status === 'segmented'}
               onPlayRange={playRange}
               onCloseVertical={() => setVertical(null)}
             />
@@ -250,46 +235,48 @@ export default function App() {
             {job.status === 'ready' &&
               (job.error || error ? (
                 <ErrorNotice
-                  title={error?.tone === 'busy' ? BUSY_TITLE : "We couldn't find clips"}
+                  title={error?.tone === 'busy' ? BUSY_TITLE : "Couldn't find clips"}
                   message={error?.message ?? job.error}
                   tone={error?.tone}
                   onRetry={findClips}
                   retryLabel={working ? 'Starting…' : 'Try again'}
                 />
               ) : (
-                <div className="card next">
+                <section className="timeline timeline--empty" aria-labelledby="next-title">
                   <div>
-                    <p className="next-title">Video ready</p>
-                    <p className="section-meta">Next, FlipClip splits it into clips at its scene cuts.</p>
+                    <h2 id="next-title" className="next-title">
+                      Video imported
+                    </h2>
+                    <p className="meta">Next, FlipClip splits it into clips at its scene cuts.</p>
                   </div>
                   <button type="button" onClick={findClips} disabled={working}>
                     {working ? 'Starting…' : 'Find clips'}
                   </button>
-                </div>
+                </section>
               ))}
 
             {job.status === 'segmenting' && (
               <>
-                <div className="card">
+                <section className="timeline timeline--empty" aria-label="Finding clips">
                   <ProgressBar label="Finding clips…" value={job.progress} />
-                </div>
+                </section>
                 <ClipSkeletons label="Finding clips…" />
               </>
             )}
 
             {job.status === 'segmented' && (
-              <ClipList
+              <ClipWorkspace
                 key={job.id}
                 jobId={job.id}
                 duration={job.duration}
                 limits={config}
+                videoRef={videoRef}
                 playingIndex={activeIndex}
                 showingIndex={vertical?.clip.index}
                 onPlay={playRange}
+                onStop={stop}
                 onShowVertical={showVertical}
                 onRendered={handleRendered}
-                onEditOpen={openEditor}
-                onEditClose={() => setEditing(false)}
                 onEdited={handleEdited}
                 onExportStatus={setExportStatus}
                 onStartOver={reset}
@@ -300,15 +287,10 @@ export default function App() {
       </main>
 
       <footer className="footer">
-        <h2>How it works</h2>
-        <ol>
-          <li>Add a video: upload a file, paste a YouTube link or try the sample.</li>
-          <li>
-            FlipClip splits it at its scene cuts into clips of up to {config?.max_clip_sec ?? 60} seconds.
-          </li>
-          <li>Each clip is cropped to 9:16 following the speaker's face. Edit, then download.</li>
-        </ol>
-        <p className="footer-note">Videos are deleted from the server after 2 hours.</p>
+        <span>
+          Built by <a href="https://github.com/Robin-Hmaidan">Robin Hmaidan</a>
+        </span>
+        <span>Videos are deleted from the server after 2 hours.</span>
       </footer>
     </div>
   )

@@ -10,7 +10,7 @@ export function ProgressBar({ label, value }) {
     <div className="progress">
       <div className="progress-label">
         <span>{label}</span>
-        <span className="progress-value">{value}%</span>
+        <span className="mono">{value}%</span>
       </div>
       <div
         className="progress-track"
@@ -30,7 +30,7 @@ export function ProgressBar({ label, value }) {
 export default function JobStatus({ job, onRetry, onStartOver }) {
   if (job.status === 'failed') {
     return (
-      <ErrorNotice title="We couldn't get that video" message={job.error || 'Something went wrong.'} onRetry={onRetry}>
+      <ErrorNotice title="Couldn't import that video" message={job.error || 'Something went wrong.'} onRetry={onRetry}>
         <button type="button" className="secondary" onClick={onStartOver}>
           Choose another video
         </button>
@@ -38,7 +38,7 @@ export default function JobStatus({ job, onRetry, onStartOver }) {
     )
   }
   return (
-    <div className="card">
+    <div className="status">
       <ProgressBar label={LABELS[job.status] ?? 'Working…'} value={job.progress} />
     </div>
   )

@@ -1,11 +1,10 @@
 import { useRef } from 'react'
-import { formatTime } from '../format.js'
+import { clipNumber, formatTimecode } from '../format.js'
 
-// The source video. Once there are clips it becomes "Before", next to the vertical "After" clip,
-// or next to a placeholder that says how to get one. Phones stack the two (see .compare in CSS).
-export default function Preview({ job, videoRef, onSeeking, vertical, showPlaceholder, onPlayRange, onCloseVertical }) {
+// The source video, and once there are clips, a phone showing the vertical result next to it
+// (or saying how to get one). Phones stack the two, and skip the empty phone (see .viewer in CSS).
+export default function Preview({ job, videoRef, onSeeking, onPause, vertical, showPhone, onPlayRange, onCloseVertical }) {
   const verticalRef = useRef(null)
-  const paired = Boolean(vertical) || showPlaceholder
 
   function playBoth() {
     const v = verticalRef.current
@@ -16,68 +15,59 @@ export default function Preview({ job, videoRef, onSeeking, vertical, showPlaceh
     v.play().catch(() => {})
   }
 
-  const range = vertical && `${formatTime(vertical.clip.start)}–${formatTime(vertical.clip.end)}`
-
   return (
-    <section className="card preview" aria-labelledby="preview-title">
-      <div className="section-head">
-        <h2 id="preview-title">{vertical ? `Clip ${vertical.clip.index + 1}: before and after` : 'Your video'}</h2>
-        <p className="section-meta">
-          {formatTime(job.duration)} · {job.width} × {job.height}
-        </p>
-      </div>
+    <section className={`viewer${showPhone ? ' viewer--paired' : ''}`} aria-label="Preview">
+      <figure className="source">
+        <figcaption className="panel-head">
+          <span className="label">Source</span>
+          <span className="mono meta">
+            {formatTimecode(job.duration)} · {job.width}×{job.height}
+          </span>
+        </figcaption>
+        {/* Keyed by id so a new job always loads a fresh source. */}
+        <video
+          key={job.id}
+          ref={videoRef}
+          src={`/api/jobs/${job.id}/video`}
+          controls
+          playsInline
+          preload="metadata"
+          onSeeking={onSeeking}
+          onPause={onPause}
+        />
+      </figure>
 
-      <div className={paired ? 'compare' : undefined}>
-        <figure className="compare-original">
-          {paired && (
-            <figcaption>
-              <span className="badge">Before</span> Original 16:9{range && ` · ${range}`}
-            </figcaption>
-          )}
-          {/* Keyed by id so a new job always loads a fresh source. */}
-          <video
-            key={job.id}
-            ref={videoRef}
-            src={`/api/jobs/${job.id}/video`}
-            controls
-            playsInline
-            preload="metadata"
-            onSeeking={onSeeking}
-          />
-        </figure>
-
-        {vertical && (
-          <figure className="compare-vertical">
-            <figcaption>
-              <span className="badge badge--accent">After</span> Vertical 9:16
-            </figcaption>
-            <video key={vertical.url} ref={verticalRef} src={vertical.url} controls playsInline preload="metadata" />
-          </figure>
-        )}
-
-        {!vertical && showPlaceholder && (
-          <div className="compare-vertical compare-empty">
-            <span className="badge badge--accent">After</span>
-            <div className="compare-empty-frame" aria-hidden="true" />
-            <p>
-              Your vertical clip shows up here. Tap <strong>Make vertical</strong> on any clip below.
-            </p>
+      {showPhone && (
+        <figure className={`vertical${vertical ? '' : ' vertical--empty'}`}>
+          <figcaption className="panel-head">
+            <span className="label">Vertical</span>
+            <span className="mono meta">{vertical ? `Clip ${clipNumber(vertical.clip.index)} · 9:16` : '9:16'}</span>
+          </figcaption>
+          <div className="phone">
+            <div className="phone-screen">
+              {vertical ? (
+                <video key={vertical.url} ref={verticalRef} src={vertical.url} controls playsInline preload="metadata" />
+              ) : (
+                <p className="phone-empty">
+                  Choose <strong>Make vertical</strong> on a clip to see it here.
+                </p>
+              )}
+            </div>
           </div>
-        )}
-      </div>
-
-      {vertical && (
-        <div className="button-row">
-          <button type="button" onClick={playBoth}>
-            Play both
-          </button>
-          <a className="button secondary" href={vertical.downloadUrl} download>
-            Download
-          </a>
-          <button type="button" className="secondary" onClick={onCloseVertical}>
-            Close
-          </button>
-        </div>
+          {vertical && (
+            <div className="button-row">
+              <button type="button" onClick={playBoth}>
+                Play both
+              </button>
+              <a className="button secondary" href={vertical.downloadUrl} download>
+                Download clip
+              </a>
+              <button type="button" className="secondary" onClick={onCloseVertical}>
+                Close
+              </button>
+            </div>
+          )}
+        </figure>
       )}
     </section>
   )

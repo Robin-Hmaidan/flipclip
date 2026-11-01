@@ -1,5 +1,5 @@
 // An error the user can act on: what happened in plain words, then "Try again" and/or another way out.
-// tone="busy" is for the server being full: not the user's fault, so calmer colours and a clock.
+// tone="busy" is for the server being full: not the user's fault, so a neutral tone and a clock.
 export default function ErrorNotice({
   title = 'Something went wrong',
   message,
@@ -11,13 +11,13 @@ export default function ErrorNotice({
   return (
     <div className={`notice notice--${tone}`} role={tone === 'busy' ? 'status' : 'alert'}>
       <span className="notice-icon" aria-hidden="true">
-        {tone === 'busy' ? <ClockIcon /> : '!'}
+        {tone === 'busy' ? <ClockIcon /> : <AlertIcon />}
       </span>
       <div className="notice-body">
         <p className="notice-title">{title}</p>
         {message && <p className="notice-message">{message}</p>}
         {(onRetry || children) && (
-          <div className="notice-actions">
+          <div className="button-row">
             {onRetry && (
               <button type="button" onClick={onRetry}>
                 {retryLabel}
@@ -33,9 +33,18 @@ export default function ErrorNotice({
 
 function ClockIcon() {
   return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <circle cx="8" cy="8" r="6" />
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <circle cx="8" cy="8" r="6.25" />
       <path d="M8 4.5V8l2.5 1.5" />
+    </svg>
+  )
+}
+
+function AlertIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+      <circle cx="8" cy="8" r="6.25" />
+      <path d="M8 4.5v4M8 11v.01" />
     </svg>
   )
 }
