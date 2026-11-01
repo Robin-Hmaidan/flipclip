@@ -9,6 +9,27 @@ Planned pipeline: YouTube download → scene segmentation → face-tracked cropp
 > face. Each rendered clip downloads on its own, and "Export all (zip)" renders whatever is left and
 > downloads every clip in one zip. Videos are deleted after 2 hours.
 
+## Live demo
+
+**https://marvelous-pronto-unwieldy.ngrok-free.dev**
+
+Hosted from my machine since the brief excludes paid services: the production container runs on my
+PC and an ngrok tunnel makes it public, so it's only up while that PC is on. It's one machine shared
+by everyone, so it works on at most 3 videos at a time (`MAX_ACTIVE_JOBS`); while it's full, starting
+another one says so and asks you to try again in a minute. Uploads are capped at 500 MB and videos at
+60 minutes, and links must be YouTube video links.
+
+## Run it yourself
+
+With [Docker](https://docs.docker.com/get-docker/) installed:
+
+```bash
+docker compose -f docker-compose.prod.yml up
+```
+
+Then open **http://localhost:7860**. This is the same single production container as the live demo
+(API and built frontend on one port), with a named volume for job data.
+
 ## Screenshots
 
 | Phone (375 px) | Desktop |
@@ -25,7 +46,7 @@ All shots, including loading, error and dark-mode states, are in [docs/screensho
 
 - [Docker](https://docs.docker.com/get-docker/) with Docker Compose. Nothing else is needed.
 
-## Start
+## Development setup
 
 ```bash
 docker compose up
@@ -121,14 +142,32 @@ docker compose exec backend python -m pytest tests
 
 All `/clips/...` and `/export...` routes answer 409 until the job is `segmented`.
 
+Starting work (upload, YouTube, sample, segment, render, export) answers **429** with
+`Retry-After: 60` while `MAX_ACTIVE_JOBS` (default 3) jobs are busy: uploading, downloading,
+finding clips, rendering or exporting. A job that is already busy can still queue more renders, since
+they share its one worker; finished files are always served.
+
 ### Production image
+
+`docker-compose.prod.yml` builds the root `Dockerfile` (non-root uid 1000, API and built UI on
+:7860), restarts it unless stopped, keeps `/data` in a named volume and pins public DNS resolvers like
+the dev backend. Without Compose:
 
 ```bash
 docker build -t flipclip .
 docker run -p 7860:7860 flipclip
 ```
 
-Open **http://localhost:7860**. One container serves both the API and the built frontend.
+### Hosting the live demo
+
+```powershell
+.\scripts\start-demo.ps1            # add -NoBuild to skip rebuilding the image
+```
+
+Starts the production stack, waits for it to answer, then opens the ngrok tunnel on the static domain.
+It needs ngrok (`winget install Ngrok.Ngrok`) with an authtoken (`ngrok config add-authtoken <token>`).
+Ctrl+C closes the tunnel; the app keeps running until
+`docker compose -f docker-compose.prod.yml down`.
 
 ## Local setup (editor autocomplete only)
 
@@ -165,5 +204,7 @@ backend/
 frontend/            Vite + React UI (plain CSS, light and dark from the system setting)
 docs/screenshots/    UI at 375 px and desktop, for this README
 docker-compose.yml   dev: backend :8000 + Vite :5173, hot reload
+docker-compose.prod.yml  production: the root Dockerfile on :7860
 Dockerfile           production: single container on :7860
+scripts/start-demo.ps1   production stack + ngrok tunnel for the live demo
 ```

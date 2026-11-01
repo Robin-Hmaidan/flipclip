@@ -3,6 +3,17 @@ const SERVER_FAULT = 'Something went wrong on our side. Please try again.'
 // Jobs are deleted 2 hours after they start; the server then only knows "not found".
 const EXPIRED = 'This video is no longer available (videos are deleted after 2 hours). Please start again.'
 
+// The status rides along so callers can tell "busy, try again soon" (429) from a real failure.
+class ApiError extends Error {
+  constructor(message, status) {
+    super(message)
+    this.status = status
+  }
+}
+
+// The server is at its limit of videos in progress; nothing is wrong with the user's video.
+export const isBusy = (err) => err?.status === 429
+
 // FastAPI sends {detail: string} for our errors, which are written for users already.
 // Anything else (validation lists, proxy errors, empty bodies) gets a plain-words fallback.
 function errorMessage(body, status) {
@@ -20,7 +31,7 @@ async function request(path, options) {
     throw new Error(OFFLINE) // fetch only rejects when no response arrived at all
   }
   const body = await res.json().catch(() => null)
-  if (!res.ok) throw new Error(errorMessage(body, res.status))
+  if (!res.ok) throw new ApiError(errorMessage(body, res.status), res.status)
   return body
 }
 
@@ -66,7 +77,7 @@ export function uploadVideo(file, onProgress) {
     }
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve(xhr.response)
-      else reject(new Error(errorMessage(xhr.response, xhr.status)))
+      else reject(new ApiError(errorMessage(xhr.response, xhr.status), xhr.status))
     }
     xhr.onerror = () => reject(new Error('Upload failed. Check your connection and try again.'))
     const form = new FormData()

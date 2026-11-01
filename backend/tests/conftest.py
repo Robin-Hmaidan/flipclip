@@ -10,12 +10,15 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from app.core.config import settings  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services.jobs import job_store  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
 def storage(tmp_path, monkeypatch):
     # A fresh storage dir per test, so job folders one test leaves behind can't fail another's checks.
     monkeypatch.setattr(settings, "storage_dir", tmp_path / "storage")
+    # And an empty store: jobs a test leaves busy would count against MAX_ACTIVE_JOBS in the next.
+    job_store._jobs.clear()
 
 
 @pytest.fixture

@@ -10,7 +10,7 @@ from starlette.requests import ClientDisconnect
 
 from app.core.config import settings
 from app.services import editor, exporter, segmenter, youtube
-from app.services.jobs import Clip, Job, job_store
+from app.services.jobs import Clip, Job, JobsFull, job_store
 from app.services.renderer import render_job_clip, render_queue
 from app.services.probe import ProbeError, VideoInfo, probe
 from app.services.storage import create_job_dir, delete_job_dir, job_dir, parse_job_id
@@ -79,6 +79,23 @@ def _too_long() -> HTTPException:
     return HTTPException(422, f"Video is longer than the {settings.max_duration_sec // 60}-minute limit.")
 
 
+def _busy() -> HTTPException:
+    # The demo runs on one machine; a minute is about how long finding clips or a render takes.
+    return HTTPException(
+        429,
+        f"Too many videos are being worked on right now (the limit is {settings.max_active_jobs} at a time). "
+        "Please try again in a minute.",
+        headers={"Retry-After": "60"},
+    )
+
+
+def _create_job() -> Job:
+    try:
+        return job_store.create(settings.max_active_jobs)
+    except JobsFull:
+        raise _busy()
+
+
 def _require_job(job_id: str) -> Job:
     if parse_job_id(job_id) is None:
         raise HTTPException(400, "Invalid job ID.")
@@ -102,7 +119,7 @@ async def upload(request: Request) -> JobOut:
     if declared.isdigit() and int(declared) > max_bytes + MULTIPART_OVERHEAD:
         raise too_large
 
-    job = job_store.create()
+    job = _create_job()
     dest = create_job_dir(job.id) / "source"
     try:
         try:
@@ -140,7 +157,7 @@ def from_sample() -> JobOut:
     source = settings.sample_video
     if not source.is_file():
         raise HTTPException(404, "The sample video isn't available.")
-    job = job_store.create()
+    job = _create_job()
     # A copy, not a link: the job folder is the job's own, and cleanup deletes it whole.
     dest = create_job_dir(job.id) / "source"
     try:
@@ -174,7 +191,7 @@ def from_youtube(body: YoutubeIn, background: BackgroundTasks) -> JobOut:
     if meta.duration > settings.max_duration_sec:
         raise _too_long()
 
-    job = job_store.create()
+    job = _create_job()
     create_job_dir(job.id)
     background.add_task(youtube.download_job, job_store, job.id, url)
     return _out(job)
@@ -198,7 +215,12 @@ def get_video(job_id: str) -> FileResponse:
 @router.post("/{job_id}/segment", status_code=202, response_model=JobOut)
 def segment(job_id: str, background: BackgroundTasks) -> JobOut:
     _require_job(job_id)
-    if not job_store.transition(job_id, "ready", status="segmenting", progress=0, error=None):
+    try:
+        started = job_store.transition(job_id, "ready", settings.max_active_jobs,
+                                       status="segmenting", progress=0, error=None)
+    except JobsFull:
+        raise _busy()
+    if not started:
         raise HTTPException(409, "The video must be ready before finding clips.")
     background.add_task(segmenter.segment_job, job_store, job_id)
     return _out(job_store.get(job_id))
@@ -286,7 +308,10 @@ def reset_clip(job_id: str, index: str) -> ClipOut:
 @router.post("/{job_id}/clips/{index}/render", response_model=RenderOut)
 def render_clip(job_id: str, index: str, response: Response) -> RenderOut:
     job, clip = _require_clip(job_id, index)
-    render, queued = job_store.claim_render(job.id, clip.index)
+    try:
+        render, queued = job_store.claim_render(job.id, clip.index, settings.max_active_jobs)
+    except JobsFull:
+        raise _busy()
     if queued:
         render_queue.submit(job.id, render_job_clip, job_store, job.id, clip.index)
     # Already rendered: 200 with the existing file. Otherwise 202, accepted and in progress.
@@ -332,7 +357,10 @@ def _export_out(job: Job) -> ExportOut:
 @router.post("/{job_id}/export", response_model=ExportOut)
 def start_export(job_id: str, response: Response) -> ExportOut:
     job = _require_segmented(job_id)
-    exporter.start_export(job_store, render_queue, job.id)
+    try:
+        exporter.start_export(job_store, render_queue, job.id, settings.max_active_jobs)
+    except JobsFull:
+        raise _busy()
     job = job_store.get(job.id)
     # Already exported: 200 with the existing zip. Otherwise 202, accepted and in progress.
     response.status_code = 200 if job.export.status == "done" else 202

@@ -10,6 +10,10 @@ ACTIVE_RENDERS = ("queued", "rendering")
 ACTIVE_EXPORTS = ("rendering", "zipping")
 
 
+class JobsFull(Exception):
+    """max_active jobs are busy already, so no other job may start work."""
+
+
 @dataclass(frozen=True)
 class Clip:
     index: int
@@ -82,9 +86,12 @@ class JobStore:
         # Downloads update jobs from worker threads while requests read them.
         self._lock = threading.Lock()
 
-    def create(self) -> Job:
+    def create(self, max_active: int | None = None) -> Job:
+        """A new job is busy from the start (status queued). Raises JobsFull if max_active
+        jobs are busy already."""
         job = Job(id=str(uuid.uuid4()))
         with self._lock:
+            self._check_room(max_active)
             self._jobs[job.id] = job
         return replace(job)
 
@@ -102,24 +109,28 @@ class JobStore:
                 for key, value in fields.items():
                     setattr(job, key, value)
 
-    def transition(self, job_id: str, expected: str, **fields) -> bool:
+    def transition(self, job_id: str, expected: str, max_active: int | None = None, **fields) -> bool:
         """Apply fields only if the job is in the expected status. Atomic, so two requests can't
-        both start the same work (Redis would do this with WATCH/MULTI)."""
+        both start the same work (Redis would do this with WATCH/MULTI). Raises JobsFull if the
+        job is idle and max_active other jobs are busy."""
         with self._lock:
             job = self._jobs.get(job_id)
             if not job or job.status != expected:
                 return False
+            self._check_room(max_active, job)
             for key, value in fields.items():
                 setattr(job, key, value)
             return True
 
-    def claim_render(self, job_id: str, index: int) -> tuple[Render, bool]:
-        """Queue a render unless one is queued, running or done. Returns (render, newly_queued)."""
+    def claim_render(self, job_id: str, index: int, max_active: int | None = None) -> tuple[Render, bool]:
+        """Queue a render unless one is queued, running or done. Returns (render, newly_queued).
+        Raises JobsFull if it would make an idle job busy while max_active others are."""
         with self._lock:
             job = self._jobs[job_id]
             current = job.renders.get(index, Render())
             if current.status in (*ACTIVE_RENDERS, "done"):
                 return current, False
+            self._check_room(max_active, job)
             job.renders[index] = Render(status="queued")
             return job.renders[index], True
 
@@ -129,13 +140,15 @@ class JobStore:
             if job:
                 job.renders[index] = replace(job.renders.get(index, Render()), **fields)
 
-    def claim_export(self, job_id: str) -> tuple[Export, bool]:
+    def claim_export(self, job_id: str, max_active: int | None = None) -> tuple[Export, bool]:
         """Start an export unless one is running or done. Returns (export, newly_started).
-        pending is every clip not rendered yet, including renders already queued or running."""
+        pending is every clip not rendered yet, including renders already queued or running.
+        Raises JobsFull if it would make an idle job busy while max_active others are."""
         with self._lock:
             job = self._jobs[job_id]
             if job.export.status in (*ACTIVE_EXPORTS, "done"):
                 return job.export, False
+            self._check_room(max_active, job)
             pending = tuple(
                 c.index for c in job.clips
                 if job.renders.get(c.index, Render()).status != "done"
@@ -182,6 +195,14 @@ class JobStore:
             or job.export.status in ACTIVE_EXPORTS
             or any(r.status in ACTIVE_RENDERS for r in job.renders.values())
         )
+
+    def _check_room(self, max_active: int | None, job: Job | None = None) -> None:
+        """Caller holds the lock. A job that is busy already holds its slot, so more work on it
+        is always allowed: its renders share one worker, so they add no concurrency."""
+        if max_active is None or (job is not None and self._busy(job)):
+            return
+        if sum(self._busy(j) for j in self._jobs.values()) >= max_active:
+            raise JobsFull
 
     def is_active(self, job_id: str) -> bool:
         with self._lock:

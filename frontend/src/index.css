@@ -587,6 +587,21 @@ input::placeholder {
   border-radius: 50%;
 }
 
+/* Busy: the server is full, nothing went wrong. Accent colours, not error red. */
+.notice--busy {
+  background: var(--accent-soft);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.notice--busy .notice-icon {
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.notice--busy .notice-title {
+  color: var(--accent-text);
+}
+
 .notice-body {
   flex: 1;
   min-width: 0;

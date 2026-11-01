@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { getConfig, segmentJob, startSample, submitYoutube, uploadVideo } from './api.js'
+import { getConfig, isBusy, segmentJob, startSample, submitYoutube, uploadVideo } from './api.js'
 import ClipList, { ClipSkeletons } from './components/ClipList.jsx'
 import JobStatus, { ProgressBar } from './components/JobStatus.jsx'
 import Logo from './components/Logo.jsx'
@@ -13,6 +13,15 @@ import { useRangePlayback } from './useRangePlayback.js'
 
 // Statuses in which the job has a playable video.
 const HAS_VIDEO = ['ready', 'segmenting', 'segmented']
+
+const BUSY_TITLE = 'FlipClip is busy right now'
+
+// What to show for a failed request: the busy notice when the server is full, otherwise the given title.
+function failure(err, title, retry) {
+  return isBusy(err)
+    ? { title: BUSY_TITLE, message: err.message, retry, tone: 'busy' }
+    : { title, message: err.message, retry }
+}
 
 // The step the user is on: what they're doing now, not the furthest they've been.
 function currentStep({ hasVideo, vertical, exportStatus, editing }) {
@@ -28,7 +37,7 @@ export default function App() {
   const [configAttempt, setConfigAttempt] = useState(0)
   const [uploadPct, setUploadPct] = useState(null) // null when no upload is running
   const [pending, setPending] = useState(null) // label while a new job is being created
-  const [error, setError] = useState(null) // { title, message, retry? }
+  const [error, setError] = useState(null) // { title, message, retry?, tone? }
   const [jobId, setJobId] = useState(null)
   const { job, error: pollError, resume } = useJob(jobId)
   const { videoRef, playRange, activeIndex, onSeeking, stop } = useRangePlayback()
@@ -60,7 +69,7 @@ export default function App() {
       const created = await submit()
       setJobId(created.id)
     } catch (err) {
-      setError({ title: "We couldn't start with that video", message: err.message, retry: () => start(submit, label) })
+      setError(failure(err, "We couldn't start with that video", () => start(submit, label)))
     } finally {
       setPending(null)
       setUploadPct(null)
@@ -100,7 +109,7 @@ export default function App() {
       await segmentJob(job.id)
       resume()
     } catch (err) {
-      setError({ title: "We couldn't start finding clips", message: err.message, retry: findClips })
+      setError(failure(err, "We couldn't start finding clips", findClips))
     } finally {
       setPending(null)
     }
@@ -186,7 +195,7 @@ export default function App() {
                 Shorts, Reels and TikTok.
               </p>
             </div>
-            {error && <ErrorNotice title={error.title} message={error.message} onRetry={error.retry} />}
+            {error && <ErrorNotice title={error.title} message={error.message} tone={error.tone} onRetry={error.retry} />}
             {working && (
               <div className="card">
                 {uploadPct !== null ? (
@@ -241,8 +250,9 @@ export default function App() {
             {job.status === 'ready' &&
               (job.error || error ? (
                 <ErrorNotice
-                  title="We couldn't find clips"
+                  title={error?.tone === 'busy' ? BUSY_TITLE : "We couldn't find clips"}
                   message={error?.message ?? job.error}
+                  tone={error?.tone}
                   onRetry={findClips}
                   retryLabel={working ? 'Starting…' : 'Try again'}
                 />

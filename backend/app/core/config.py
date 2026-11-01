@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     track_fps: float = Field(default=5, gt=0, le=30)
     # Bundled video behind "Try a sample video"; the button hides when the file is missing.
     sample_video: Path = APP_DIR / "assets" / "sample.mp4"
+    # Jobs that may be busy (uploading, downloading, finding clips, rendering, exporting) at once.
+    # Starting work on another answers 429; the public demo runs on one machine.
+    max_active_jobs: int = Field(default=3, ge=1)
 
     # .env is optional: compose injects variables, and this lets the local venv pick them up too.
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

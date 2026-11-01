@@ -56,9 +56,10 @@ def build_zip(files: Sequence[tuple[Path, str]], dest: Path, on_progress: Callab
         tmp.unlink(missing_ok=True)
 
 
-def start_export(store: JobStore, queue: RenderQueue, job_id: str) -> None:
-    """Queue every clip that isn't rendered yet, then the zip step behind them."""
-    export, started = store.claim_export(job_id)
+def start_export(store: JobStore, queue: RenderQueue, job_id: str, max_active: int | None = None) -> None:
+    """Queue every clip that isn't rendered yet, then the zip step behind them. Raises JobsFull
+    (from claim_export) if max_active other jobs are busy."""
+    export, started = store.claim_export(job_id, max_active)
     if not started:
         return
     for index in export.pending:

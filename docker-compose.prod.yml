@@ -1,0 +1,23 @@
+# Production: the root Dockerfile's single image (API + built UI) on one port.
+# Run: docker compose -f docker-compose.prod.yml up -d --build, then open http://localhost:7860
+# Own project name: sharing the dev stack's would make each treat the other's containers as orphans.
+name: flipclip-prod
+services:
+  app:
+    build: .
+    ports:
+      - "7860:7860"
+    # Public resolvers: Docker Desktop's forwarding of the host's DNS dropped YouTube lookups
+    # intermittently ("Name or service not known"), which broke yt-dlp downloads.
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
+    volumes:
+      - flipclip-prod-data:/data
+
+volumes:
+  flipclip-prod-data:
