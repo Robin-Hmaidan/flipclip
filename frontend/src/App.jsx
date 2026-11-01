@@ -74,6 +74,17 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
+  // The editor has its own player; the main one shouldn't keep playing underneath it.
+  function pauseMain() {
+    stop()
+    videoRef.current?.pause()
+  }
+
+  // The edited clip's vertical render is gone, so it can't stay open.
+  function handleEdited(clip) {
+    if (vertical?.clip.index === clip.index) setVertical(null)
+  }
+
   // A finished render opens only if nothing is showing; it never replaces what the user is watching.
   function handleRendered(clip, url) {
     if (!vertical) showVertical(clip, url)
@@ -125,11 +136,15 @@ export default function App() {
             <ClipList
               key={job.id}
               jobId={job.id}
+              duration={job.duration}
+              limits={config}
               playingIndex={activeIndex}
               showingIndex={vertical?.clip.index}
               onPlay={playRange}
               onShowVertical={showVertical}
               onRendered={handleRendered}
+              onEditOpen={pauseMain}
+              onEdited={handleEdited}
             />
           )}
         </>

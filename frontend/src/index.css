@@ -367,6 +367,185 @@ a.button.small {
   font-size: 0.85rem;
 }
 
+.clip-tag {
+  margin-left: 6px;
+  padding: 1px 6px;
+  color: var(--accent);
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: var(--accent-soft);
+  border-radius: 999px;
+}
+
+/* Clip editor */
+.editor {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  padding: 20px;
+  color: var(--fg);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.editor::backdrop {
+  background: rgb(0 0 0 / 0.6);
+}
+
+.editor h2 {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+}
+
+.editor video {
+  display: block;
+  width: 100%;
+  max-height: 40vh;
+  background: #000;
+  border-radius: 8px;
+}
+
+.editor button.small.editor-play {
+  width: auto;
+  margin-top: 8px;
+}
+
+/* The whole strip takes the pointer, so a finger needn't land exactly on a handle. */
+.range {
+  --handle: 24px;
+  position: relative;
+  height: 48px;
+  margin: 12px calc(var(--handle) / 2) 0;
+  touch-action: none; /* dragging must not scroll the page */
+  cursor: pointer;
+  user-select: none;
+}
+
+.range-rail,
+.range-fill {
+  position: absolute;
+  top: 50%;
+  height: 6px;
+  border-radius: 3px;
+  transform: translateY(-50%);
+}
+
+.range-rail {
+  left: 0;
+  right: 0;
+  background: var(--border);
+}
+
+.range-fill {
+  background: var(--accent);
+}
+
+.range-mark {
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  width: 2px;
+  background: var(--muted);
+  transform: translateX(-50%);
+}
+
+.range-handle {
+  position: absolute;
+  top: 50%;
+  width: var(--handle);
+  height: var(--handle);
+  background: var(--card);
+  border: 3px solid var(--accent);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.range-handle:focus-visible {
+  outline: 3px solid var(--accent-soft);
+  outline-offset: 2px;
+}
+
+@media (pointer: coarse) {
+  .range {
+    --handle: 32px;
+  }
+}
+
+.editor-scale {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.editor-bounds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
+  margin-top: 12px;
+}
+
+.editor-bound {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.editor-bound-label {
+  width: 2.5em;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.editor-bound button.small {
+  width: auto;
+  min-width: 52px;
+  min-height: 40px;
+}
+
+.editor-time {
+  min-width: 5.5ch;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.editor-length {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.editor-length strong {
+  color: var(--fg);
+}
+
+.editor-problem {
+  margin: 12px 0 0;
+  color: var(--error);
+  font-size: 0.9rem;
+}
+
+.editor .message--error {
+  margin-top: 12px;
+}
+
+.editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.editor-actions button.secondary {
+  align-self: auto;
+}
+
+.editor-reset {
+  margin-right: auto;
+}
+
 /* Original and vertical side by side. Flex weights follow the aspect ratios (16:9 vs 9:16),
    so both videos end up the same height. */
 .compare {
@@ -462,5 +641,27 @@ footer {
 
   .export-error {
     text-align: left;
+  }
+
+  .editor {
+    padding: 16px;
+  }
+
+  /* Each bound gets its own row; the nudge buttons share it evenly. */
+  .editor-bound {
+    flex: 1 1 100%;
+  }
+
+  .editor-bound button.small {
+    flex: 1;
+  }
+
+  .editor-actions > button {
+    flex: 1;
+  }
+
+  .editor-reset {
+    flex-basis: 100%;
+    margin-right: 0;
   }
 }

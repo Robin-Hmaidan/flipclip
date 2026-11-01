@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     # Clip length bounds for segmentation.
     min_clip_sec: float = 15
     max_clip_sec: float = 60
+    # Shortest clip the editor accepts; the longest is max_clip_sec.
+    edit_min_sec: float = 3
     # Face detection samples per second. Faces move slowly; the crop is interpolated in between.
     track_fps: float = Field(default=5, gt=0, le=30)
 
@@ -24,6 +26,8 @@ class Settings(BaseSettings):
         # Splitting an over-long clip evenly yields pieces just over max/2; this keeps them >= min.
         if not 0 < self.min_clip_sec <= self.max_clip_sec / 2:
             raise ValueError("MIN_CLIP_SEC must be positive and at most half of MAX_CLIP_SEC")
+        if not 0 < self.edit_min_sec <= self.max_clip_sec:
+            raise ValueError("EDIT_MIN_SEC must be positive and at most MAX_CLIP_SEC")
         return self
 
     @property

@@ -86,6 +86,11 @@ def detect_scenes(path: Path, on_progress: Callable[[float], None]) -> list[tupl
     return [(s.get_seconds(), e.get_seconds()) for s, e in scenes]
 
 
+def thumbnail_time(start: float, end: float) -> float:
+    # Just after the cut, so the frame isn't a transition blend.
+    return start + min(1.0, (end - start) / 2)
+
+
 def make_thumbnail(src: Path, at: float, dest: Path) -> None:
     cmd = [
         "ffmpeg", "-v", "error", "-y",
@@ -110,8 +115,7 @@ def segment_job(store: JobStore, job_id: str) -> None:
         thumbs.mkdir(exist_ok=True)
         clips = []
         for i, (start, end) in enumerate(ranges):
-            # Just after the cut, so the frame isn't a transition blend.
-            make_thumbnail(job.video_path, start + min(1.0, (end - start) / 2), thumbs / f"{i}.jpg")
+            make_thumbnail(job.video_path, thumbnail_time(start, end), thumbs / f"{i}.jpg")
             clips.append(Clip(i, start, end))
             store.update(job_id, progress=DETECT_SHARE + (100 - DETECT_SHARE) * (i + 1) // len(ranges) - 1)
     except Exception:

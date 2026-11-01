@@ -7,7 +7,8 @@ const ACTIVE = ['rendering', 'zipping']
 
 // Export state for a job: start() renders whatever is missing and zips it all, then polls until
 // done or failed. onStarted runs once the server has queued the work; onReady gets the zip URL.
-export function useExport(jobId, { onStarted, onReady }) {
+// A new refreshKey re-reads the state from the server, after an edit dropped the zip.
+export function useExport(jobId, { onStarted, onReady, refreshKey }) {
   const [state, setState] = useState(IDLE)
   const [polling, setPolling] = useState(false)
   const callbacks = useRef({ onStarted, onReady })
@@ -44,6 +45,17 @@ export function useExport(jobId, { onStarted, onReady }) {
       clearTimeout(timer)
     }
   }, [jobId, polling])
+
+  useEffect(() => {
+    if (!refreshKey) return undefined
+    let cancelled = false
+    getExport(jobId)
+      .then((next) => !cancelled && setState(next))
+      .catch(() => {}) // keeps what it showed; starting an export reports any real problem
+    return () => {
+      cancelled = true
+    }
+  }, [jobId, refreshKey])
 
   const start = useCallback(async () => {
     setState((prev) => ({ ...prev, status: 'rendering', progress: 0, error: null }))

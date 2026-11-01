@@ -7,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
 from app.core.config import settings
-from app.services import exporter, segmenter, youtube
+from app.services import editor, exporter, segmenter, youtube
 from app.services.jobs import Clip, Job, job_store
 from app.services.renderer import render_job_clip, render_queue
 from app.services.probe import ProbeError, probe
@@ -37,7 +37,17 @@ class ClipOut(BaseModel):
     start: float
     end: float
     duration: float
+    original_start: float
+    original_end: float
+    edited: bool
     thumbnail_url: str
+
+
+class ClipEditIn(BaseModel):
+    # NaN and infinity pass here and are refused by editor.check_range: FastAPI's own 422 would
+    # echo the NaN back and fail to encode it as JSON.
+    start: float
+    end: float
 
 
 class RenderOut(BaseModel):
@@ -166,18 +176,21 @@ def segment(job_id: str, background: BackgroundTasks) -> JobOut:
     return _out(job_store.get(job_id))
 
 
+def _clip_out(job_id: str, clip: Clip) -> ClipOut:
+    return ClipOut(
+        index=clip.index, start=clip.start, end=clip.end, duration=clip.duration,
+        original_start=clip.original_start, original_end=clip.original_end, edited=clip.edited,
+        # The revision changes the URL on every edit, so the browser never shows a cached old frame.
+        thumbnail_url=f"/api/jobs/{job_id}/clips/{clip.index}/thumbnail?v={clip.revision}",
+    )
+
+
 @router.get("/{job_id}/clips", response_model=list[ClipOut])
 def list_clips(job_id: str) -> list[ClipOut]:
     job = _require_job(job_id)
     if job.status != "segmented":
         raise HTTPException(409, "Clips aren't ready yet.")
-    return [
-        ClipOut(
-            index=c.index, start=c.start, end=c.end, duration=c.duration,
-            thumbnail_url=f"/api/jobs/{job.id}/clips/{c.index}/thumbnail",
-        )
-        for c in job.clips
-    ]
+    return [_clip_out(job.id, c) for c in job.clips]
 
 
 def _require_segmented(job_id: str) -> Job:
@@ -202,12 +215,14 @@ def _render_out(job: Job, index: int) -> RenderOut:
     render = job.renders.get(index)
     status = render.status if render else "idle"
     done = status == "done"
+    # Versioned like the thumbnail: an edited clip's new render must not play from cache.
+    version = f"?v={job.clips[index].revision}"
     return RenderOut(
         index=index, status=status,
         progress=render.progress if render else 0,
         error=render.error if render else None,
-        video_url=f"/api/jobs/{job.id}/clips/{index}/video" if done else None,
-        download_url=f"/api/jobs/{job.id}/clips/{index}/download" if done else None,
+        video_url=f"/api/jobs/{job.id}/clips/{index}/video{version}" if done else None,
+        download_url=f"/api/jobs/{job.id}/clips/{index}/download{version}" if done else None,
     )
 
 
@@ -215,6 +230,29 @@ def _render_out(job: Job, index: int) -> RenderOut:
 def clip_thumbnail(job_id: str, index: str) -> FileResponse:
     job, clip = _require_clip(job_id, index)
     return FileResponse(job_dir(job.id) / "thumbs" / f"{clip.index}.jpg", media_type="image/jpeg")
+
+
+# Sync handlers: drawing the new thumbnail runs ffmpeg, so FastAPI runs these in its threadpool.
+@router.patch("/{job_id}/clips/{index}", response_model=ClipOut)
+def edit_clip(job_id: str, index: str, body: ClipEditIn) -> ClipOut:
+    job, clip = _require_clip(job_id, index)
+    try:
+        moved = editor.edit_clip(job_store, job.id, clip.index, body.start, body.end)
+    except editor.InvalidRange as exc:
+        raise HTTPException(422, str(exc))
+    except editor.ClipBusy as exc:
+        raise HTTPException(409, str(exc))
+    return _clip_out(job.id, moved)
+
+
+@router.post("/{job_id}/clips/{index}/reset", response_model=ClipOut)
+def reset_clip(job_id: str, index: str) -> ClipOut:
+    job, clip = _require_clip(job_id, index)
+    try:
+        moved = editor.reset_clip(job_store, job.id, clip.index)
+    except editor.ClipBusy as exc:
+        raise HTTPException(409, str(exc))
+    return _clip_out(job.id, moved)
 
 
 @router.post("/{job_id}/clips/{index}/render", response_model=RenderOut)
@@ -283,5 +321,7 @@ def export_download(job_id: str) -> FileResponse:
     job = _require_segmented(job_id)
     if job.export.status != "done":
         raise HTTPException(404, "The export isn't ready yet.")
-    # FileResponse streams the zip from disk in chunks.
-    return FileResponse(job.export.path, media_type="application/zip", filename=exporter.ZIP_NAME)
+    # FileResponse streams the zip from disk in chunks. Its URL survives an edit while its
+    # contents don't, so the browser must check back instead of reusing a cached copy.
+    return FileResponse(job.export.path, media_type="application/zip", filename=exporter.ZIP_NAME,
+                        headers={"Cache-Control": "no-cache"})

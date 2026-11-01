@@ -20,6 +20,13 @@ export const segmentJob = (id) =>
 const clipPath = (id, index) => `/api/jobs/${encodeURIComponent(id)}/clips/${index}`
 export const getClipRender = (id, index) => request(clipPath(id, index))
 export const renderClip = (id, index) => request(`${clipPath(id, index)}/render`, { method: 'POST' })
+export const editClip = (id, index, start, end) =>
+  request(clipPath(id, index), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ start, end }),
+  })
+export const resetClip = (id, index) => request(`${clipPath(id, index)}/reset`, { method: 'POST' })
 
 const exportPath = (id) => `/api/jobs/${encodeURIComponent(id)}/export`
 export const getExport = (id) => request(exportPath(id))

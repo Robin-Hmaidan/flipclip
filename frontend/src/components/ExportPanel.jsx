@@ -11,8 +11,8 @@ function download(url) {
   a.remove()
 }
 
-export default function ExportPanel({ jobId, onStarted }) {
-  const exp = useExport(jobId, { onStarted, onReady: download })
+export default function ExportPanel({ jobId, refreshKey, onStarted }) {
+  const exp = useExport(jobId, { onStarted, onReady: download, refreshKey })
 
   return (
     <div className="export">

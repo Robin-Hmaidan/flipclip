@@ -3,6 +3,7 @@ import time
 import uuid
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Literal
 
 ACTIVE_STATUSES = ("queued", "downloading", "segmenting")
 ACTIVE_RENDERS = ("queued", "rendering")
@@ -14,10 +15,25 @@ class Clip:
     index: int
     start: float
     end: float
+    # Bounds from segmentation, kept so an edit can be reset. Default to start/end.
+    original_start: float | None = None
+    original_end: float | None = None
+    # Bumped on every edit, so URLs of the clip's thumbnail and render change with it.
+    revision: int = 0
+
+    def __post_init__(self) -> None:
+        if self.original_start is None:
+            object.__setattr__(self, "original_start", self.start)
+        if self.original_end is None:
+            object.__setattr__(self, "original_end", self.end)
 
     @property
     def duration(self) -> float:
         return round(self.end - self.start, 3)
+
+    @property
+    def edited(self) -> bool:
+        return (self.start, self.end) != (self.original_start, self.original_end)
 
 
 @dataclass(frozen=True)
@@ -132,6 +148,28 @@ class JobStore:
             job = self._jobs.get(job_id)
             if job:
                 job.export = replace(job.export, **fields)
+
+    def move_clip(self, job_id: str, index: int, start: float, end: float
+                  ) -> tuple[Clip, list[Path]] | Literal["rendering", "exporting"]:
+        """Give a clip new bounds, unless its render is queued or running or an export is running
+        (returns which). Its render and the export no longer match, so both go back to idle; the
+        files they leave behind are returned for the caller to delete. Same bounds: no change."""
+        with self._lock:
+            job = self._jobs[job_id]
+            clip = job.clips[index]
+            if (clip.start, clip.end) == (start, end):
+                return clip, []
+            if job.export.status in ACTIVE_EXPORTS:
+                return "exporting"
+            render = job.renders.get(index, Render())
+            if render.status in ACTIVE_RENDERS:
+                return "rendering"
+            # Copy the list: get() hands out shallow copies that share it.
+            job.clips = list(job.clips)
+            job.clips[index] = replace(clip, start=start, end=end, revision=clip.revision + 1)
+            stale = [p for p in (job.renders.pop(index, Render()).path, job.export.path) if p]
+            job.export = Export()
+            return job.clips[index], stale
 
     def delete(self, job_id: str) -> None:
         with self._lock:
