@@ -1,10 +1,9 @@
 import json
 import subprocess
-import time
 
 import pytest
 
-from app.core.config import settings
+from tests.helpers import segmented_job, wait_for_render
 
 
 def ffprobe(data: bytes, tmp_path) -> dict:
@@ -16,39 +15,6 @@ def ffprobe(data: bytes, tmp_path) -> dict:
         capture_output=True, text=True, check=True,
     ).stdout
     return json.loads(out)
-
-
-@pytest.fixture
-def av_video(tmp_path):
-    """6 s, 1280x720, 25 fps, with a sine-wave audio track."""
-    out = tmp_path / "av.mp4"
-    subprocess.run(
-        ["ffmpeg", "-v", "error", "-y",
-         "-f", "lavfi", "-i", "testsrc2=size=1280x720:rate=25",
-         "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100",
-         "-t", "6", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", str(out)],
-        check=True,
-    )
-    return out.read_bytes()
-
-
-def segmented_job(client, monkeypatch, video: bytes) -> dict:
-    # 6 s with no cuts and max 4 s -> two even 3 s clips, so clip 1 starts mid-video.
-    monkeypatch.setattr(settings, "min_clip_sec", 1)
-    monkeypatch.setattr(settings, "max_clip_sec", 4)
-    job = client.post("/api/jobs/upload", files={"file": ("av.mp4", video, "video/mp4")}).json()
-    client.post(f"/api/jobs/{job['id']}/segment")
-    return job
-
-
-def wait_for_render(client, url: str, timeout: float = 120) -> dict:
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        state = client.get(url).json()
-        if state["status"] in ("done", "failed"):
-            return state
-        time.sleep(0.25)
-    raise AssertionError(f"render did not finish in {timeout}s: {state}")
 
 
 def test_render_vertical_clip(client, monkeypatch, av_video, tmp_path):
@@ -94,7 +60,7 @@ def test_render_requires_segmented_job(client, make_video):
     assert client.get(f"{base}/video").status_code == 409
 
 
-@pytest.mark.parametrize("index,status", [("abc", 400), ("-1", 400), ("²", 400), ("5", 404)])
+@pytest.mark.parametrize("index,status", [("abc", 400), ("-1", 400), ("Â²", 400), ("5", 404)])
 def test_render_index_validated(client, make_video, index, status):
     job = client.post("/api/jobs/upload", files={"file": ("c.mp4", make_video(2), "video/mp4")}).json()
     client.post(f"/api/jobs/{job['id']}/segment")

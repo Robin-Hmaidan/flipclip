@@ -7,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.requests import ClientDisconnect
 
 from app.core.config import settings
-from app.services import segmenter, youtube
+from app.services import exporter, segmenter, youtube
 from app.services.jobs import Clip, Job, job_store
 from app.services.renderer import render_job_clip, render_queue
 from app.services.probe import ProbeError, probe
@@ -46,6 +46,14 @@ class RenderOut(BaseModel):
     progress: int
     error: str | None
     video_url: str | None
+    download_url: str | None
+
+
+class ExportOut(BaseModel):
+    status: str  # idle | rendering | zipping | done | failed
+    progress: int
+    error: str | None
+    download_url: str | None
 
 
 def _out(job: Job) -> JobOut:
@@ -172,10 +180,15 @@ def list_clips(job_id: str) -> list[ClipOut]:
     ]
 
 
-def _require_clip(job_id: str, index: str) -> tuple[Job, Clip]:
+def _require_segmented(job_id: str) -> Job:
     job = _require_job(job_id)
     if job.status != "segmented":
         raise HTTPException(409, "Find clips first.")
+    return job
+
+
+def _require_clip(job_id: str, index: str) -> tuple[Job, Clip]:
+    job = _require_segmented(job_id)
     # ASCII digits only; file names are then built from the int, never from the raw string.
     if not (index.isascii() and index.isdigit()):
         raise HTTPException(400, "Invalid clip index.")
@@ -188,11 +201,13 @@ def _require_clip(job_id: str, index: str) -> tuple[Job, Clip]:
 def _render_out(job: Job, index: int) -> RenderOut:
     render = job.renders.get(index)
     status = render.status if render else "idle"
+    done = status == "done"
     return RenderOut(
         index=index, status=status,
         progress=render.progress if render else 0,
         error=render.error if render else None,
-        video_url=f"/api/jobs/{job.id}/clips/{index}/video" if status == "done" else None,
+        video_url=f"/api/jobs/{job.id}/clips/{index}/video" if done else None,
+        download_url=f"/api/jobs/{job.id}/clips/{index}/download" if done else None,
     )
 
 
@@ -227,3 +242,46 @@ def clip_video(job_id: str, index: str) -> FileResponse:
         raise HTTPException(409, "This clip hasn't been made vertical yet.")
     # FileResponse serves Range requests, so the player can seek.
     return FileResponse(render.path, media_type="video/mp4")
+
+
+@router.get("/{job_id}/clips/{index}/download")
+def clip_download(job_id: str, index: str) -> FileResponse:
+    job, clip = _require_clip(job_id, index)
+    render = job.renders.get(clip.index)
+    if render is None or render.status != "done":
+        raise HTTPException(404, "This clip hasn't been made vertical yet.")
+    # filename= makes it an attachment, so the browser saves it instead of playing it.
+    return FileResponse(render.path, media_type="video/mp4",
+                        filename=exporter.clip_filename(clip.index, len(job.clips)))
+
+
+def _export_out(job: Job) -> ExportOut:
+    export = job.export
+    return ExportOut(
+        status=export.status, progress=exporter.export_progress(job), error=export.error,
+        download_url=f"/api/jobs/{job.id}/export/download" if export.status == "done" else None,
+    )
+
+
+@router.post("/{job_id}/export", response_model=ExportOut)
+def start_export(job_id: str, response: Response) -> ExportOut:
+    job = _require_segmented(job_id)
+    exporter.start_export(job_store, render_queue, job.id)
+    job = job_store.get(job.id)
+    # Already exported: 200 with the existing zip. Otherwise 202, accepted and in progress.
+    response.status_code = 200 if job.export.status == "done" else 202
+    return _export_out(job)
+
+
+@router.get("/{job_id}/export", response_model=ExportOut)
+def export_status(job_id: str) -> ExportOut:
+    return _export_out(_require_segmented(job_id))
+
+
+@router.get("/{job_id}/export/download")
+def export_download(job_id: str) -> FileResponse:
+    job = _require_segmented(job_id)
+    if job.export.status != "done":
+        raise HTTPException(404, "The export isn't ready yet.")
+    # FileResponse streams the zip from disk in chunks.
+    return FileResponse(job.export.path, media_type="application/zip", filename=exporter.ZIP_NAME)

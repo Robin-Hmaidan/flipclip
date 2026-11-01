@@ -153,6 +153,25 @@ button.secondary {
   border: 1px solid var(--border);
 }
 
+/* Download links, styled like the buttons next to them. */
+a.button {
+  display: inline-block;
+  padding: 10px 18px;
+  font-weight: 600;
+  color: #fff;
+  text-align: center;
+  text-decoration: none;
+  background: var(--accent);
+  border-radius: 8px;
+}
+
+a.button.secondary {
+  color: var(--fg);
+  background: transparent;
+  /* Inset outline instead of a border, so it's exactly as tall as the button above it. */
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
 /* Status, progress, preview */
 .status:empty {
   display: none;
@@ -218,9 +237,38 @@ button.primary {
 }
 
 /* Clip list */
+.clips-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 12px;
+}
+
 .clips h2 {
-  margin: 0 0 12px;
+  margin: 0;
   font-size: 1.1rem;
+}
+
+.export {
+  display: flex;
+  flex: 0 1 320px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.export .progress {
+  flex: 1 1 100%;
+}
+
+.export-error {
+  flex: 1 1 100%;
+  margin: 0;
+  color: var(--error);
+  font-size: 0.85rem;
+  text-align: right;
 }
 
 .clip-grid {
@@ -295,6 +343,9 @@ button.primary {
 }
 
 .clip-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
   margin-top: auto;
   padding: 0 8px 8px;
 }
@@ -304,12 +355,13 @@ button.primary {
 }
 
 .clip-error {
-  margin: 0 0 6px;
+  margin: 0;
   color: var(--error);
   font-size: 0.8rem;
 }
 
-button.small {
+button.small,
+a.button.small {
   width: 100%;
   padding: 6px 10px;
   font-size: 0.85rem;
@@ -396,5 +448,19 @@ footer {
 
   .dropzone {
     padding: 32px 16px;
+  }
+
+  /* The export controls take their own full-width row under the clip count. */
+  .export {
+    flex-basis: 100%;
+  }
+
+  .export > button,
+  .export > a.button {
+    flex: 1;
+  }
+
+  .export-error {
+    text-align: left;
   }
 }

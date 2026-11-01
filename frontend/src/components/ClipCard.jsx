@@ -2,8 +2,8 @@ import { formatTime } from '../format.js'
 import { useClipRender } from '../useClipRender.js'
 import { ProgressBar } from './JobStatus.jsx'
 
-export default function ClipCard({ jobId, clip, playing, showing, onPlay, onShowVertical, onRendered }) {
-  const render = useClipRender(jobId, clip.index, (url) => onRendered(clip, url))
+export default function ClipCard({ jobId, clip, playing, showing, syncKey, onPlay, onShowVertical, onRendered }) {
+  const render = useClipRender(jobId, clip.index, (url) => onRendered(clip, url), syncKey)
   const busy = render.status === 'queued' || render.status === 'rendering'
 
   return (
@@ -26,9 +26,14 @@ export default function ClipCard({ jobId, clip, playing, showing, onPlay, onShow
           <ProgressBar label={render.status === 'queued' ? 'Waiting…' : 'Rendering…'} value={render.progress} />
         )}
         {render.status === 'done' && (
-          <button type="button" className="small" onClick={() => onShowVertical(clip, render.video_url)}>
-            {showing ? 'Showing vertical' : 'Show vertical'}
-          </button>
+          <>
+            <button type="button" className="small" onClick={() => onShowVertical(clip, render.video_url)}>
+              {showing ? 'Showing vertical' : 'Show vertical'}
+            </button>
+            <a className="button small secondary" href={render.download_url} download>
+              Download
+            </a>
+          </>
         )}
         {render.status === 'failed' && (
           <>

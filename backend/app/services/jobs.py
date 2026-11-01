@@ -6,6 +6,7 @@ from pathlib import Path
 
 ACTIVE_STATUSES = ("queued", "downloading", "segmenting")
 ACTIVE_RENDERS = ("queued", "rendering")
+ACTIVE_EXPORTS = ("rendering", "zipping")
 
 
 @dataclass(frozen=True)
@@ -27,6 +28,16 @@ class Render:
     path: Path | None = None
 
 
+@dataclass(frozen=True)
+class Export:
+    status: str = "idle"  # idle | rendering | zipping | done | failed
+    progress: int = 0
+    error: str | None = None
+    # Clips this export had to render; its progress during "rendering" is theirs.
+    pending: tuple[int, ...] = ()
+    path: Path | None = None
+
+
 @dataclass
 class Job:
     id: str
@@ -43,6 +54,7 @@ class Job:
     # Scene cut times from segmentation; the tracker resets its smoothing at each one.
     cuts: list[float] = field(default_factory=list)
     renders: dict[int, Render] = field(default_factory=dict)
+    export: Export = field(default_factory=Export)
     created_at: float = field(default_factory=time.time)
 
 
@@ -101,28 +113,46 @@ class JobStore:
             if job:
                 job.renders[index] = replace(job.renders.get(index, Render()), **fields)
 
+    def claim_export(self, job_id: str) -> tuple[Export, bool]:
+        """Start an export unless one is running or done. Returns (export, newly_started).
+        pending is every clip not rendered yet, including renders already queued or running."""
+        with self._lock:
+            job = self._jobs[job_id]
+            if job.export.status in (*ACTIVE_EXPORTS, "done"):
+                return job.export, False
+            pending = tuple(
+                c.index for c in job.clips
+                if job.renders.get(c.index, Render()).status != "done"
+            )
+            job.export = Export(status="rendering" if pending else "zipping", pending=pending)
+            return job.export, True
+
+    def update_export(self, job_id: str, **fields) -> None:
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job:
+                job.export = replace(job.export, **fields)
+
     def delete(self, job_id: str) -> None:
         with self._lock:
             self._jobs.pop(job_id, None)
 
+    @staticmethod
+    def _busy(job: Job) -> bool:
+        return (
+            job.status in ACTIVE_STATUSES
+            or job.export.status in ACTIVE_EXPORTS
+            or any(r.status in ACTIVE_RENDERS for r in job.renders.values())
+        )
+
     def is_active(self, job_id: str) -> bool:
         with self._lock:
             job = self._jobs.get(job_id)
-            if not job:
-                return False
-            return job.status in ACTIVE_STATUSES or any(
-                r.status in ACTIVE_RENDERS for r in job.renders.values()
-            )
+            return bool(job) and self._busy(job)
 
     def expired_ids(self, cutoff: float) -> list[str]:
         with self._lock:
-            return [
-                j.id
-                for j in self._jobs.values()
-                if j.created_at < cutoff
-                and j.status not in ACTIVE_STATUSES
-                and not any(r.status in ACTIVE_RENDERS for r in j.renders.values())
-            ]
+            return [j.id for j in self._jobs.values() if j.created_at < cutoff and not self._busy(j)]
 
 
 job_store = JobStore()

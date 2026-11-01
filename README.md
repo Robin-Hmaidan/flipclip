@@ -3,9 +3,11 @@
 FlipClip turns long horizontal (16:9) videos into vertical (9:16) clips for Shorts, Reels and TikTok.
 Planned pipeline: YouTube download → scene segmentation → face-tracked cropping → export.
 
-> Status: video input, segmentation and vertical crop. Upload a video or paste a YouTube link, "Find
-> clips" splits it at scene cuts into 15–60 s candidates, and "Make vertical" renders any clip as a
-> 1080x1920 video whose crop follows the speaker's face. Videos are deleted after 2 hours.
+> Status: video input, segmentation, vertical crop and export. Upload a video or paste a YouTube link,
+> "Find clips" splits it at scene cuts into 15–60 s candidates, and "Make vertical" renders any clip as a
+> 1080x1920 video whose crop follows the speaker's face. Each rendered clip downloads on its own, and
+> "Export all (zip)" renders whatever is left and downloads every clip in one zip. Videos are deleted
+> after 2 hours.
 
 ## Prerequisites
 
@@ -36,6 +38,14 @@ scene cuts so a new shot snaps to its subject. With no face it holds the last po
 at the start). The crop centre is interpolated between samples for every frame, then frames are cropped
 in OpenCV and piped to ffmpeg with the clip's original audio. A job renders one clip at a time.
 
+### How export works
+
+Export queues every clip that isn't rendered yet on the job's render queue, then the zip step behind
+them, so the zip only starts once those renders are finished. Its progress is the renders' progress
+(95%) plus the zip copy (5%). Clips are stored uncompressed (H.264 is already compressed) and copied
+into the zip in 1 MB chunks, written to the job folder, which cleanup deletes with the rest of the job.
+Files are named `flipclip_clip01.mp4`, `flipclip_clip02.mp4`, … in clip order.
+
 ### Tests
 
 ```bash
@@ -54,9 +64,15 @@ docker compose exec backend python -m pytest tests
 | `GET /api/jobs/{id}/clips` | `[{index, start, end, duration, thumbnail_url}]` once `segmented` |
 | `GET /api/jobs/{id}/clips/{index}/thumbnail` | JPEG thumbnail for one clip |
 | `POST /api/jobs/{id}/clips/{index}/render` | queue a 9:16 render (202); 200 with the file if already rendered |
-| `GET /api/jobs/{id}/clips/{index}` | render `{status, progress, error, video_url}` |
+| `GET /api/jobs/{id}/clips/{index}` | render `{status, progress, error, video_url, download_url}` |
 | `GET /api/jobs/{id}/clips/{index}/video` | the rendered 1080x1920 mp4 (seekable) |
+| `GET /api/jobs/{id}/clips/{index}/download` | the same file as an attachment, `flipclip_clipNN.mp4`; 404 until rendered |
+| `POST /api/jobs/{id}/export` | render the missing clips, then zip all of them (202); 200 if already exported |
+| `GET /api/jobs/{id}/export` | `{status, progress, error, download_url}`; status `idle`/`rendering`/`zipping`/`done`/`failed` |
+| `GET /api/jobs/{id}/export/download` | `flipclip_clips.zip`; 404 until the export is done |
 | `GET /api/config` | upload and duration limits, so the UI can check before uploading |
+
+All `/clips/...` and `/export...` routes answer 409 until the job is `segmented`.
 
 ### Production image
 
@@ -90,7 +106,8 @@ backend/
     main.py          FastAPI app: CORS, routers, static frontend (prod)
     api/             HTTP routes: health, config, jobs
     services/        business logic: job store, uploads, ffprobe, YouTube, segmenter,
-                     tracker (face-follow crop), renderer (9:16 encode + queue), cleanup
+                     tracker (face-follow crop), renderer (9:16 encode + queue),
+                     exporter (zip of all clips), cleanup
     core/config.py   settings read from env
   requirements.txt   pinned Python dependencies
   requirements-nodeps.txt  scenedetect, installed with --no-deps

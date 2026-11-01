@@ -5,7 +5,8 @@ const POLL_MS = 1000
 const IDLE = { status: 'idle', progress: 0, error: null, video_url: null }
 
 // Render state for one clip: start() queues the render, then polls until done or failed.
-export function useClipRender(jobId, index, onDone) {
+// A new syncKey re-reads the state from the server, for renders something else started (an export).
+export function useClipRender(jobId, index, onDone, syncKey) {
   const [state, setState] = useState(IDLE)
   const [polling, setPolling] = useState(false)
   // Latest callback without restarting the polling effect when the parent re-renders.
@@ -13,6 +14,8 @@ export function useClipRender(jobId, index, onDone) {
   useEffect(() => {
     onDoneRef.current = onDone
   })
+  // onDone is for renders the user asked for; one an export started finishes quietly.
+  const requestedRef = useRef(false)
 
   useEffect(() => {
     if (!polling) return undefined
@@ -29,7 +32,7 @@ export function useClipRender(jobId, index, onDone) {
           return
         }
         setPolling(false)
-        if (next.status === 'done') onDoneRef.current?.(next.video_url)
+        if (next.status === 'done' && requestedRef.current) onDoneRef.current?.(next.video_url)
       } catch (err) {
         if (cancelled) return
         setState((prev) => ({ ...prev, status: 'failed', error: err.message }))
@@ -44,7 +47,23 @@ export function useClipRender(jobId, index, onDone) {
     }
   }, [jobId, index, polling])
 
+  useEffect(() => {
+    if (!syncKey) return undefined
+    let cancelled = false
+    getClipRender(jobId, index)
+      .then((next) => {
+        if (cancelled) return
+        setState(next)
+        if (next.status === 'queued' || next.status === 'rendering') setPolling(true)
+      })
+      .catch(() => {}) // the card keeps what it showed; the export reports its own errors
+    return () => {
+      cancelled = true
+    }
+  }, [jobId, index, syncKey])
+
   const start = useCallback(async () => {
+    requestedRef.current = true
     setState((prev) => ({ ...prev, status: 'queued', progress: 0, error: null }))
     try {
       const next = await renderClip(jobId, index)
